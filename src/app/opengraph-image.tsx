@@ -1,5 +1,7 @@
 import { ImageResponse } from "next/og";
 
+import { CITYFIL_MARK } from "@/components/brand/cityfil-logo";
+
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -19,19 +21,13 @@ export default function OpengraphImage() {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
-        <svg width={120} height={120} viewBox="0 0 32 32">
-          <circle cx="16" cy="16" r="9" fill="rgba(255,255,255,0.12)" stroke="#f5f3ee" strokeWidth="1.4" />
-          <ellipse
-            cx="16"
-            cy="16"
-            rx="14"
-            ry="5.3"
-            transform="rotate(-24 16 16)"
-            fill="none"
-            stroke="#ff8a4c"
-            strokeWidth="1.4"
-          />
-          <circle cx="27.7" cy="10.9" r="2.3" fill="#ff8a4c" />
+        {/* Same mark as the app icon (public/brand/cityfil/app-icon.svg). */}
+        <svg width={132} height={132} viewBox="0 0 256 256">
+          <path d={CITYFIL_MARK.orbitBack} fill="none" stroke="#ff8a3d" strokeWidth="14" strokeLinecap="round" />
+          <circle cx="128" cy="130" r="56" fill="#f5f3ee" />
+          <path d={CITYFIL_MARK.orbitCut} fill="none" stroke="#0c0e18" strokeWidth="28" />
+          <path d={CITYFIL_MARK.orbitFront} fill="none" stroke="#ff8a3d" strokeWidth="14" strokeLinecap="round" />
+          <circle cx={CITYFIL_MARK.runner.cx} cy={CITYFIL_MARK.runner.cy} r={CITYFIL_MARK.runner.r} fill="#ffe08a" />
         </svg>
         <div style={{ fontSize: 96, fontWeight: 600, color: "#f5f3ee", letterSpacing: -2 }}>Cityfil</div>
       </div>
