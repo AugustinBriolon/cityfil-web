@@ -21,6 +21,11 @@ runs; this package is the web globe plus the mobile API.
   first so sync stays fast without bloating Neon. Displayed city % uses soft partial credit for near-miss
   contact (ADR 0013); map layers and Founder / Conqueror unlocks still require the hard 85% segment threshold.
   Cities report `pending` (streets importing), `matching` (run↔street match catching up), or `ready`.
+- Gives runners an account panel at `/account` (`/settings` redirects there): runs / km / cities overview, profile
+  visibility, Strava sync and reconnect, sign out, and account deletion.
+- Gives one operator an admin console at `/admin` (password sign-in, separate from Strava): every account with
+  sync health, search, force sync, visibility change and deletion. See
+  [ADR 0016](docs/adr/0016-admin-console-with-a-separate-password-identity.md).
 - Lets runners permanently delete their data, which also revokes Strava access, and publishes a privacy policy at
   `/privacy`.
 - Installs from Safari/Chrome as a home-screen app (`src/app/manifest.ts`) for a full-bleed, browser-chrome-free
@@ -129,6 +134,7 @@ Defined in [`.env.example`](.env.example), loaded from `.env.local`.
 | `STRAVA_CLIENT_SECRET`        | Strava API application client secret                            | From the Strava API settings page                   |
 | `TOKEN_ENCRYPTION_KEY`        | 32-byte base64 key encrypting Strava tokens at rest             | `openssl rand -base64 32`                           |
 | `STRAVA_WEBHOOK_VERIFY_TOKEN` | Shared secret echoed by Strava when validating the subscription | `openssl rand -hex 24`                              |
+| `ADMIN_PASSWORD_HASH`         | Optional; enables `/admin` (username `admin`). Hash only        | `printf %s 'password' \| pnpm admin:hash-password`  |
 
 ### Strava webhooks (optional locally)
 
