@@ -2,7 +2,12 @@ import { sql } from "drizzle-orm";
 
 import type { LngLat } from "@/lib/coverage/plan-start";
 import type { CityCoverage, CoveredStreets } from "@/lib/coverage/street-coverage";
-import { buildRunPlanRoute, runPlanRouteToGeoJson, type PlanSegment } from "@/lib/coverage/run-plan-route";
+import {
+  estimateFinishMeters,
+  planOuting,
+  runPlanRouteToGeoJson,
+  type PlanSegment,
+} from "@/lib/coverage/run-plan-route";
 import { COVERAGE_RULES, type CoverageRules } from "@/server/coverage/coverage-rules";
 import type { Database } from "@/server/db/client";
 
@@ -52,7 +57,11 @@ export type CoverageRepository = {
     jumpMeters: number;
     /** True only when the athlete start was requested and successfully used on-network. */
     startsFromPosition: boolean;
+    /** The route runs every unfinished street left in the city. */
+    coversAll: boolean;
   }>;
+  /** Outing length that finishes the city from `start` (see `estimateFinishMeters`). */
+  getFinishMeters: (userId: string, areaId: number, start?: LngLat) => Promise<number | null>;
   /** GPS distance of every run that touched at least one street in the city. */
   sumActivityDistanceInArea: (userId: string, areaId: number) => Promise<number>;
   /** Unique street metres matched by each runner in the city during [from, to). */
@@ -94,6 +103,46 @@ export function createCoverageRepository(
            / (${rules.minCoveredShare}::float8 - ${rules.softCreditFloor}::float8)
     END
   `;
+
+  /** Whole city street graph, unfinished streets flagged — full graph, pocket clipping left plans short. */
+  const loadPlanSegments = async (userId: string, areaId: number): Promise<PlanSegment[]> => {
+    const rows = await database.execute<{
+      id: number;
+      geometry: string;
+      length_meters: number;
+      covered: boolean;
+      counts_for_coverage: boolean;
+    }>(sql`
+      WITH uncovered AS (
+        SELECT segment.id
+        FROM street_segments AS segment
+        WHERE segment.area_id = ${areaId}
+          AND segment.counts_for_coverage
+          AND segment.id NOT IN (${segmentsHardCoveredBy(userId)})
+      )
+      SELECT
+        segment.id::int AS id,
+        ST_AsGeoJSON(segment.path, 6) AS geometry,
+        segment.length_meters::float8 AS length_meters,
+        (NOT EXISTS (SELECT 1 FROM uncovered WHERE uncovered.id = segment.id)) AS covered,
+        segment.counts_for_coverage AS counts_for_coverage
+      FROM street_segments AS segment
+      WHERE segment.area_id = ${areaId}
+    `);
+    return rows.flatMap((row) => {
+      const geometry = JSON.parse(row.geometry) as { type: string; coordinates: PlanSegment["coordinates"] };
+      if (geometry.type !== "LineString" || geometry.coordinates.length < 2) return [];
+      return [
+        {
+          id: row.id,
+          coordinates: geometry.coordinates,
+          lengthMeters: row.length_meters,
+          covered: Boolean(row.covered),
+          countsForCoverage: Boolean(row.counts_for_coverage),
+        },
+      ];
+    });
+  };
 
   return {
     async hasPendingMatch(scope) {
@@ -339,56 +388,12 @@ export function createCoverageRepository(
 
     async getRunPlanStreets(userId, areaId, budgetMeters, { salt = 0, start } = {}) {
       const budget = Math.max(500, Math.min(budgetMeters, 40_000));
-      // Full city graph — pocket clipping left distance fill short (~2–3 km) on half-conquered towns.
-      const rows = await database.execute<{
-        id: number;
-        geometry: string;
-        length_meters: number;
-        covered: boolean;
-        counts_for_coverage: boolean;
-      }>(sql`
-        WITH uncovered AS (
-          SELECT segment.id
-          FROM street_segments AS segment
-          WHERE segment.area_id = ${areaId}
-            AND segment.counts_for_coverage
-            AND segment.id NOT IN (${segmentsHardCoveredBy(userId)})
-        )
-        SELECT
-          segment.id::int AS id,
-          ST_AsGeoJSON(segment.path, 6) AS geometry,
-          segment.length_meters::float8 AS length_meters,
-          (NOT EXISTS (SELECT 1 FROM uncovered WHERE uncovered.id = segment.id)) AS covered,
-          segment.counts_for_coverage AS counts_for_coverage
-        FROM street_segments AS segment
-        WHERE segment.area_id = ${areaId}
-      `);
-
-      const segments: PlanSegment[] = rows.flatMap((row) => {
-        const geometry = JSON.parse(row.geometry) as { type: string; coordinates: PlanSegment["coordinates"] };
-        if (geometry.type !== "LineString" || geometry.coordinates.length < 2) return [];
-        return [
-          {
-            id: row.id,
-            coordinates: geometry.coordinates,
-            lengthMeters: row.length_meters,
-            covered: Boolean(row.covered),
-            countsForCoverage: Boolean(row.counts_for_coverage),
-          },
-        ];
-      });
-
-      let route = buildRunPlanRoute(segments, {
+      const segments = await loadPlanSegments(userId, areaId);
+      const { route, startsFromPosition } = planOuting(segments, {
         budgetMeters: budget,
         salt,
         start: start ? [start.lng, start.lat] : undefined,
       });
-      let startsFromPosition = start != null && route.coordinates.length >= 2;
-      // GPS snap / disconnected seed → still offer a city-centered on-network plan.
-      if (start && route.coordinates.length < 2) {
-        route = buildRunPlanRoute(segments, { budgetMeters: budget, salt });
-        startsFromPosition = false;
-      }
       return {
         streets: runPlanRouteToGeoJson(route, areaId) as CoveredStreets,
         targetMeters: route.uncoveredMeters,
@@ -396,7 +401,13 @@ export function createCoverageRepository(
         jumpCount: route.jumpCount,
         jumpMeters: route.jumpMeters,
         startsFromPosition,
+        coversAll: route.coversAll,
       };
+    },
+
+    async getFinishMeters(userId, areaId, start) {
+      const segments = await loadPlanSegments(userId, areaId);
+      return estimateFinishMeters(segments, start ? [start.lng, start.lat] : undefined);
     },
 
     async sumActivityDistanceInArea(userId, areaId) {

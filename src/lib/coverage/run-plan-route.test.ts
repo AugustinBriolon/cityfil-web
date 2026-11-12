@@ -4,7 +4,9 @@ import {
   bridgeBudgetMeters,
   buildRunPlanRoute,
   distanceMeters,
+  estimateFinishMeters,
   MAX_ANCHOR_SNAP_METERS,
+  planOuting,
   planPocketExpandDegrees,
   runPlanRouteToGeoJson,
   type PlanSegment,
@@ -465,6 +467,58 @@ describe("buildRunPlanRoute", () => {
   });
 });
 
+/** A street with a dead-end side street at each junction: finishing means running back out of every one. */
+function comb(covered = false): PlanSegment[] {
+  const spine = chain(1, 5, covered);
+  const teeth = spine.map((piece, index) => {
+    const [lng] = piece.coordinates[1]!;
+    return seg(
+      100 + index,
+      [
+        [lng!, 48.0],
+        [lng!, 48.0009],
+      ],
+      covered,
+      100,
+    );
+  });
+  return [...spine, ...teeth];
+}
+
+describe("finishing a city", () => {
+  it("runs back out of dead ends to reach every unfinished street", () => {
+    const streets = comb();
+    const route = buildRunPlanRoute(streets, { budgetMeters: 3_000, salt: 0, maxBridgeMeters: 4_500 });
+    expect(route.coversAll).toBe(true);
+    expect(route.uncoveredMeters).toBe(1_000);
+    expect(route.completeAtMeters).toBeGreaterThanOrEqual(1_000);
+    expect(pathFollowsSegments(route.coordinates as [number, number][], streets)).toBe(true);
+  });
+
+  it("estimates a length that, when chosen, finishes the city whatever the salt", () => {
+    const streets = comb();
+    const finish = estimateFinishMeters(streets)!;
+    expect(finish).toBeGreaterThanOrEqual(1_000);
+    for (const salt of [0, 1, 2, 7]) {
+      const { route } = planOuting(streets, { budgetMeters: Math.ceil(finish), salt });
+      expect(route.coversAll).toBe(true);
+    }
+  });
+
+  it("does not claim to finish with a budget below the estimate", () => {
+    const streets = comb();
+    const finish = estimateFinishMeters(streets)!;
+    const { route } = planOuting(streets, { budgetMeters: finish * 0.6, salt: 0 });
+    expect(route.coversAll).toBe(false);
+  });
+
+  it("returns 0 for a finished city and null when a pocket cannot be reached on foot", () => {
+    expect(estimateFinishMeters(comb(true))).toBe(0);
+    const island = chain(500, 2, false, 2.5);
+    expect(estimateFinishMeters([...comb(), ...island])).toBeNull();
+  });
+});
+
 describe("runPlanRouteToGeoJson", () => {
   it("emits a single LineString feature for a non-empty route", () => {
     const geojson = runPlanRouteToGeoJson(
@@ -479,6 +533,8 @@ describe("runPlanRouteToGeoJson", () => {
         jumpCount: 0,
         jumpMeters: 0,
         legs: [],
+        coversAll: false,
+        completeAtMeters: null,
       },
       42,
     );

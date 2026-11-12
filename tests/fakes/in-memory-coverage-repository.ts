@@ -62,7 +62,11 @@ export function createInMemoryCoverageRepository(
         startsFromPosition: false,
         jumpCount: 0,
         jumpMeters: 0,
+        coversAll: false,
       };
+    },
+    async getFinishMeters() {
+      return null;
     },
     async sumActivityDistanceInArea() {
       return 0;
