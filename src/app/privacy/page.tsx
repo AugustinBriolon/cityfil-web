@@ -20,7 +20,7 @@ export default function PrivacyPage() {
           className="flex items-center gap-1.5 rounded-md text-sm text-muted-foreground transition-colors duration-150 ease-out outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
-          Back to the globe
+          Home
         </Link>
       </header>
 

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export const PRIVACY_LAST_UPDATED = "October 8, 2026";
+export const PRIVACY_LAST_UPDATED = "November 12, 2026";
 export const PRIVACY_CONTACT_EMAIL = "augustin.briolon@gmail.com";
 
 const INLINE_LINK_CLASS =
@@ -48,11 +48,24 @@ export function PrivacyPolicy({ compact = false }: { compact?: boolean }) {
         </p>
       </PolicySection>
 
+      <PolicySection title="Location in the iOS app" compact={compact}>
+        <p>
+          The app uses your location to show you on the map, to tell how far you are from a city and to start a planned
+          run where you stand. Those positions are sent to our server to answer the request and are not stored.
+        </p>
+        <p>
+          While you record a run, the app keeps tracking your location with the screen locked, so the run is complete
+          and turn-by-turn guidance keeps working. When you finish, the recorded run is sent through our server to your
+          Strava account; Cityfil then imports it from Strava like any other run and does not keep the raw track.
+        </p>
+      </PolicySection>
+
       <PolicySection title="How it is used" compact={compact}>
         <p>
-          Your data is used to show your runs and street coverage, and — when you invite rivals — to compare coverage on
-          a city board. Public hall-of-fame names only appear if you set your profile to public. Data is not sold, not
-          used for advertising and not used to train AI models.
+          Your data is used to show your runs and street coverage, and to rank everyone running the same city by the
+          share of its streets they covered. On those rankings you appear as an anonymous runner, without name or photo,
+          unless you set your profile to public; rivals you invited always see your name. Data is not sold, not used for
+          advertising and not used to train AI models.
         </p>
       </PolicySection>
 
@@ -78,8 +91,7 @@ export function PrivacyPolicy({ compact = false }: { compact?: boolean }) {
         <p>
           Open <span className="text-foreground">Settings</span> and choose{" "}
           <span className="text-foreground">Delete account</span>. Your profile, runs and tokens are permanently erased
-          and Cityfil&apos;s access to Strava is revoked. You can also
-          revoke access at any time from{" "}
+          and Cityfil&apos;s access to Strava is revoked. You can also revoke access at any time from{" "}
           <a href="https://www.strava.com/settings/apps" className={INLINE_LINK_CLASS}>
             strava.com/settings/apps
           </a>

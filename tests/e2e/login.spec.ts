@@ -21,9 +21,22 @@ test.describe("sign-in", () => {
     await page.goto("/globe");
     await expect(page).toHaveURL(/\/login$/);
   });
+});
 
-  test("routes the home page to sign-in", async ({ page }) => {
+test.describe("public pages", () => {
+  test("presents the app on the home page", async ({ page }) => {
     await page.goto("/");
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Run every street in your city.");
+    await expect(page.getByRole("link", { name: "Download on the App Store" }).first()).toHaveAttribute(
+      "href",
+      /apps\.apple\.com/,
+    );
+    await expect(page.getByRole("link", { name: "Sign in on the web" })).toHaveAttribute("href", "/login");
+  });
+
+  test("answers common questions on the support page", async ({ page }) => {
+    await page.goto("/support");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("How can we help?");
+    await expect(page.getByRole("heading", { name: "How do I delete my account?" })).toBeVisible();
   });
 });

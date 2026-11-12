@@ -17,7 +17,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const DESCRIPTION = "Every place you've ever run, on one interactive globe.";
+const DESCRIPTION =
+  "Run every street in your city: Cityfil maps the streets you've conquered and plans a run through the rest.";
 
 // Matches --space so Safari Liquid Glass / status-bar tint samples the night sky, not a flat black strip.
 const THEME_COLOR = "#0c0e18";
@@ -32,7 +33,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://planet-run.vercel.app"),
+  metadataBase: new URL("https://cityfil.run"),
   title: "Cityfil",
   description: DESCRIPTION,
   appleWebApp: {
