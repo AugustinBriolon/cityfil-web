@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   ADMIN_SESSION_MAX_AGE_MS,
+  ADMIN_USERNAME,
   authenticateAdmin,
   isAdminSessionFresh,
   resetAdminLoginAttemptsForTests,
@@ -10,17 +13,19 @@ import { hashAdminPassword, isAdminPasswordHash, verifyAdminPassword } from "./a
 
 describe("admin password hashing", () => {
   it("verifies the original password and rejects others", async () => {
-    const hash = await hashAdminPassword("correct horse");
+    const password = `hash-fixture-${randomUUID()}`;
+    const hash = await hashAdminPassword(password);
 
     expect(isAdminPasswordHash(hash)).toBe(true);
-    expect(hash).not.toContain("correct horse");
+    expect(hash).not.toContain(password);
     expect(hash).not.toContain("$");
-    await expect(verifyAdminPassword("correct horse", hash)).resolves.toBe(true);
-    await expect(verifyAdminPassword("correct hors", hash)).resolves.toBe(false);
+    await expect(verifyAdminPassword(password, hash)).resolves.toBe(true);
+    await expect(verifyAdminPassword(`${password}-nope`, hash)).resolves.toBe(false);
   });
 
   it("salts every hash", async () => {
-    expect(await hashAdminPassword("same")).not.toBe(await hashAdminPassword("same"));
+    const password = `salt-fixture-${randomUUID()}`;
+    expect(await hashAdminPassword(password)).not.toBe(await hashAdminPassword(password));
   });
 
   it("rejects malformed stored hashes", async () => {
@@ -31,9 +36,12 @@ describe("admin password hashing", () => {
 
 describe("authenticateAdmin", () => {
   let hash: string;
+  let password: string;
 
   beforeAll(async () => {
-    hash = await hashAdminPassword("s3cret!");
+    // Generated per run so no username/password pair is committed.
+    password = `auth-fixture-${randomUUID()}`;
+    hash = await hashAdminPassword(password);
   });
 
   beforeEach(() => {
@@ -41,28 +49,28 @@ describe("authenticateAdmin", () => {
   });
 
   it("accepts the admin username with the right password", async () => {
-    await expect(authenticateAdmin({ username: "admin", password: "s3cret!" }, hash)).resolves.toBe(true);
+    await expect(authenticateAdmin({ username: ADMIN_USERNAME, password }, hash)).resolves.toBe(true);
   });
 
   it("rejects a wrong username, a wrong password and non-string input", async () => {
-    await expect(authenticateAdmin({ username: "root", password: "s3cret!" }, hash)).resolves.toBe(false);
-    await expect(authenticateAdmin({ username: "admin", password: "nope" }, hash)).resolves.toBe(false);
-    await expect(authenticateAdmin({ username: ["admin"], password: "s3cret!" }, hash)).resolves.toBe(false);
+    await expect(authenticateAdmin({ username: "root", password }, hash)).resolves.toBe(false);
+    await expect(authenticateAdmin({ username: ADMIN_USERNAME, password: "nope" }, hash)).resolves.toBe(false);
+    await expect(authenticateAdmin({ username: [ADMIN_USERNAME], password }, hash)).resolves.toBe(false);
   });
 
   it("is disabled when no hash is configured", async () => {
-    await expect(authenticateAdmin({ username: "admin", password: "s3cret!" }, undefined)).resolves.toBe(false);
+    await expect(authenticateAdmin({ username: ADMIN_USERNAME, password }, undefined)).resolves.toBe(false);
   });
 
   it("locks out after 10 attempts in 15 minutes, even with the right password", async () => {
     const now = new Date("2026-11-12T10:00:00Z");
     for (let attempt = 0; attempt < 10; attempt++) {
-      await authenticateAdmin({ username: "admin", password: "guess" }, hash, now);
+      await authenticateAdmin({ username: ADMIN_USERNAME, password: "guess" }, hash, now);
     }
 
-    await expect(authenticateAdmin({ username: "admin", password: "s3cret!" }, hash, now)).resolves.toBe(false);
+    await expect(authenticateAdmin({ username: ADMIN_USERNAME, password }, hash, now)).resolves.toBe(false);
     const later = new Date(now.getTime() + 15 * 60 * 1000 + 1);
-    await expect(authenticateAdmin({ username: "admin", password: "s3cret!" }, hash, later)).resolves.toBe(true);
+    await expect(authenticateAdmin({ username: ADMIN_USERNAME, password }, hash, later)).resolves.toBe(true);
   });
 });
 

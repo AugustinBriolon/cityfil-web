@@ -9,11 +9,12 @@ test.describe("admin console", () => {
 
   test("rejects wrong credentials without saying which part was wrong", async ({ page }) => {
     await page.goto("/admin/login");
-    await page.getByLabel("Username").fill("admin");
-    await page.getByLabel("Password").fill("not-the-password");
+    await page.getByLabel("Username").fill("wrong-user");
+    await page.getByLabel("Password").fill("wrong-password");
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    await expect(page.getByRole("alert")).toHaveText(/Wrong username or password/);
+    // Prefer the login error id: Next also mounts a route announcer with role="alert".
+    await expect(page.locator("#admin-login-error")).toHaveText(/Wrong username or password/);
     await expect(page).toHaveURL(/\/admin\/login/);
   });
 });

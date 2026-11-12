@@ -63,6 +63,8 @@ jobs:
       DATABASE_URL: postgres://planet_run:planet_run@localhost:5433/planet_run
       STRAVA_CLIENT_ID: ci-placeholder
       STRAVA_CLIENT_SECRET: ci-placeholder
+      TOKEN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      STRAVA_WEBHOOK_VERIFY_TOKEN: ci-placeholder-verify-token
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
