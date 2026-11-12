@@ -30,10 +30,7 @@ export type NominatimResult = {
  * Discriminated reverse-geocode outcome so callers can retry transient failures
  * without permanently blacklisting the grid cell.
  */
-export type ReverseGeocodeOutcome =
-  | { kind: "hit"; result: NominatimResult }
-  | { kind: "miss" }
-  | { kind: "retryable" };
+export type ReverseGeocodeOutcome = { kind: "hit"; result: NominatimResult } | { kind: "miss" } | { kind: "retryable" };
 
 export type NominatimClient = {
   /** Reverse-geocode a lat/lon to a commune (admin_level 8), or miss/retryable. */

@@ -29,13 +29,7 @@ const STAT_DEFINITIONS: StatDefinition[] = [
   { label: "Countries", unit: "", value: (stats) => stats.countryCount, format: formatWholeNumber },
 ];
 
-export function RunStatsPanel({
-  stats,
-  cityCoverage,
-  selectedCityId,
-  onSelectCity,
-  className,
-}: RunStatsPanelProps) {
+export function RunStatsPanel({ stats, cityCoverage, selectedCityId, onSelectCity, className }: RunStatsPanelProps) {
   return (
     <section aria-label="Your running totals" className={cn("glass-panel rounded-xl p-4", className)}>
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4 sm:gap-x-8 sm:gap-y-4">

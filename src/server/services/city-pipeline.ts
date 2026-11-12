@@ -38,8 +38,7 @@ export function scheduleCityPipeline(userId: string) {
       await getServices().conquest.refreshForUser(userId);
       await cityImportQueue.processNext();
       const stillMatching = await coverage.hasPendingMatch({ userId });
-      const stillWorking =
-        discovery.continues || stillMatching || (await cityImportQueue.hasWorkForUser(userId));
+      const stillWorking = discovery.continues || stillMatching || (await cityImportQueue.hasWorkForUser(userId));
       if (stillWorking) {
         scheduleCityPipeline(userId);
         return;

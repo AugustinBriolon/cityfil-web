@@ -5,3 +5,12 @@ public/maplibre
 .next
 test-results
 playwright-report
+# Agent wiring / skills — not product code; don't gate CI on their markdown.
+.agents
+.claude
+.cursor
+.gemini
+.windsurf
+.mcp.json
+agent
+GEMINI.md

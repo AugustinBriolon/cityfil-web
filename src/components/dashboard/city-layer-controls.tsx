@@ -62,7 +62,11 @@ export type CityLayerControlsProps = {
 /** Global map-layer toggles — same glass header style as the former Heatmap button. */
 export function CityLayerControls({ layers, onToggle, className }: CityLayerControlsProps) {
   return (
-    <div className={cn("flex flex-wrap items-center justify-end gap-2", className)} role="group" aria-label="Map layers">
+    <div
+      className={cn("flex flex-wrap items-center justify-end gap-2", className)}
+      role="group"
+      aria-label="Map layers"
+    >
       {LAYER_SPECS.map((spec) => {
         const active = layers[spec.key];
         const Icon = spec.icon;

@@ -16,37 +16,21 @@ describe("CityLayerControls", () => {
   });
 
   it("marks active layers as pressed", () => {
-    render(
-      <CityLayerControls
-        layers={{ heatmap: false, remaining: true, covered: true }}
-        onToggle={vi.fn()}
-      />,
-    );
-    expect(screen.getByRole("button", { name: "Hide remaining streets" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    render(<CityLayerControls layers={{ heatmap: false, remaining: true, covered: true }} onToggle={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Hide remaining streets" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Show heatmap" })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("fills icons when a layer is active", () => {
     const { container } = render(
-      <CityLayerControls
-        layers={{ heatmap: true, remaining: false, covered: true }}
-        onToggle={vi.fn()}
-      />,
+      <CityLayerControls layers={{ heatmap: true, remaining: false, covered: true }} onToggle={vi.fn()} />,
     );
     const filled = container.querySelectorAll("svg.fill-current");
     expect(filled).toHaveLength(2);
   });
 
   it("fills only the route endpoint circles when remaining is active", () => {
-    render(
-      <CityLayerControls
-        layers={{ heatmap: false, remaining: true, covered: false }}
-        onToggle={vi.fn()}
-      />,
-    );
+    render(<CityLayerControls layers={{ heatmap: false, remaining: true, covered: false }} onToggle={vi.fn()} />);
     const remaining = screen.getByRole("button", { name: "Hide remaining streets" });
     const className = remaining.querySelector("svg")?.getAttribute("class") ?? "";
     expect(className).not.toBe("fill-current");

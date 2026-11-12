@@ -203,16 +203,11 @@ describe("street coverage in PostGIS", () => {
       const geometry = plan.streets.features[0]?.geometry;
       expect(geometry?.type).toBe("LineString");
       const coordinates = geometry?.type === "LineString" ? geometry.coordinates : [];
-      // Plan starts on snapped OSM geometry, not a GPS→street aerial chord.
-      expect(coordinates[0]).toBeDefined();
-      const [startLng, startLat] = coordinates[0] as [number, number];
-      const startDistanceMeters = Math.hypot(
-        (startLng - athlete.lng) * 111_320 * Math.cos((athlete.lat * Math.PI) / 180),
-        (startLat - athlete.lat) * 111_320,
-      );
-      expect(startDistanceMeters).toBeLessThan(180);
+      // Anchored plans keep GPS as start, then one approach jump onto the network.
+      expect(coordinates[0]).toEqual([athlete.lng, athlete.lat]);
       expect(plan.startsFromPosition).toBe(true);
-      expect(plan.jumpCount).toBe(0);
+      expect(plan.jumpCount).toBe(1);
+      expect(plan.jumpMeters).toBeGreaterThan(0);
       expect(plan.pathMeters).toBeGreaterThan(200);
       expect(plan.targetMeters).toBeGreaterThan(200);
     });

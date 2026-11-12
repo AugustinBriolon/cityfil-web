@@ -136,10 +136,7 @@ describe("filterTracesByBounds", () => {
   it("keeps only traces that intersect the city bounds", () => {
     const traces: RunTraces = {
       type: "FeatureCollection",
-      features: [
-        traceAt(1, [2.25, 48.92], [2.26, 48.93]),
-        traceAt(2, [2.5, 48.7], [2.51, 48.71]),
-      ],
+      features: [traceAt(1, [2.25, 48.92], [2.26, 48.93]), traceAt(2, [2.5, 48.7], [2.51, 48.71])],
     };
     const filtered = filterTracesByBounds(traces, [
       [2.2, 48.9],

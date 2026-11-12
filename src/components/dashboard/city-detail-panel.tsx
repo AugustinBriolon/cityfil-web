@@ -30,7 +30,7 @@ export function CityDetailPanel({ city, onClose, className }: CityDetailPanelPro
   return (
     <section aria-label={`${city.name} details`} className={cn("glass-panel rounded-xl p-4", className)}>
       <header className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-1">
           <p className="eyebrow text-ember">City</p>
           <h2 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">{city.name}</h2>
           {analyzing ? (
@@ -47,7 +47,7 @@ export function CityDetailPanel({ city, onClose, className }: CityDetailPanelPro
           type="button"
           aria-label="Close city"
           onClick={onClose}
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-[color,background-color,transform] duration-150 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97]"
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-150 ease-out outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97]"
         >
           <X className="size-4" aria-hidden="true" />
         </button>

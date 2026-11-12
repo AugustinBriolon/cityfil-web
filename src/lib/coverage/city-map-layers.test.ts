@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  CITY_FOCUS_MAP_LAYERS,
-  cityKmLeft,
-  DEFAULT_CITY_MAP_LAYERS,
-  toggleCityMapLayer,
-} from "./city-map-layers";
+import { CITY_FOCUS_MAP_LAYERS, cityKmLeft, DEFAULT_CITY_MAP_LAYERS, toggleCityMapLayer } from "./city-map-layers";
 
 describe("DEFAULT_CITY_MAP_LAYERS", () => {
   it("starts with covered on and heatmap / remaining off", () => {

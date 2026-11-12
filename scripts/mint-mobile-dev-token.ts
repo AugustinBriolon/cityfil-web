@@ -17,8 +17,7 @@ async function main() {
     const users = await sql<{ id: string; display_name: string | null }[]>`
       select id, display_name from users order by created_at asc nulls last limit 30
     `;
-    const me =
-      users.find((user) => /augustin|briolon/i.test(user.display_name ?? "")) ?? users[0];
+    const me = users.find((user) => /augustin|briolon/i.test(user.display_name ?? "")) ?? users[0];
     if (!me) throw new Error("No users in database");
 
     const token = await new SignJWT({ typ: "cityfil-mobile" })

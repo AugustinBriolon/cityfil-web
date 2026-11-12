@@ -151,17 +151,13 @@ describe("createCityDetectionService", () => {
 
     expect(nominatim.reverseGeocode).not.toHaveBeenCalled();
     expect(userCities.upsertMany).toHaveBeenCalledWith("user-1", [{ osmRelationId: 91738, name: "Colombes" }]);
-    expect(importQueue.enqueueMissing).toHaveBeenCalledWith([
-      { osmRelationId: 91738, name: "Colombes", priority: 2 },
-    ]);
+    expect(importQueue.enqueueMissing).toHaveBeenCalledWith([{ osmRelationId: 91738, name: "Colombes", priority: 2 }]);
     expect(coverage.matchPendingActivities).toHaveBeenCalledWith({ userId: "user-1" });
   });
 
   it("links cities from the boundary catalog without Nominatim", async () => {
     activityRows = [buildActivity(1, 48.85, 2.35)];
-    vi.mocked(catalog.findContainingPoints).mockResolvedValue([
-      { osmRelationId: 7444, name: "Paris", pointCount: 3 },
-    ]);
+    vi.mocked(catalog.findContainingPoints).mockResolvedValue([{ osmRelationId: 7444, name: "Paris", pointCount: 3 }]);
     vi.mocked(areas.filterPointsOutsideAreas).mockResolvedValue([{ lat: 48.85, lon: 2.35 }]);
     vi.mocked(catalog.filterPointsOutside).mockResolvedValue([]);
 
@@ -178,9 +174,7 @@ describe("createCityDetectionService", () => {
     await expect(service.discoverCitiesForUser("user-1")).resolves.toMatchObject({ linkedCities: 1 });
     expect(nominatim.reverseGeocode).not.toHaveBeenCalled();
     expect(userCities.upsertMany).toHaveBeenCalledWith("user-1", [{ osmRelationId: 7444, name: "Paris" }]);
-    expect(importQueue.enqueueMissing).toHaveBeenCalledWith([
-      { osmRelationId: 7444, name: "Paris", priority: 3 },
-    ]);
+    expect(importQueue.enqueueMissing).toHaveBeenCalledWith([{ osmRelationId: 7444, name: "Paris", priority: 3 }]);
   });
 
   it("geocodes unknown clusters in chunks and enqueues missing street imports", async () => {
@@ -251,18 +245,11 @@ describe("createCityDetectionService", () => {
 
     await service.discoverCitiesForUser("user-1");
 
-    expect(userCities.markGeocodeCells).toHaveBeenCalledWith(
-      "user-1",
-      expect.arrayContaining([expect.any(String)]),
-    );
+    expect(userCities.markGeocodeCells).toHaveBeenCalledWith("user-1", expect.arrayContaining([expect.any(String)]));
   });
 
   it("sets import priority from per-city discovery density, not global run count", async () => {
-    activityRows = [
-      buildActivity(1, 48.922, 2.252),
-      buildActivity(2, 48.922, 2.252),
-      buildActivity(3, 48.85, 2.35),
-    ];
+    activityRows = [buildActivity(1, 48.922, 2.252), buildActivity(2, 48.922, 2.252), buildActivity(3, 48.85, 2.35)];
     vi.mocked(areas.findAreasContainingPoints).mockResolvedValue([
       { osmRelationId: 91738, name: "Colombes", pointCount: 4 },
       { osmRelationId: 7444, name: "Paris", pointCount: 1 },

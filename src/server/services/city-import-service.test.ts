@@ -50,11 +50,7 @@ describe("createCityImportService", () => {
     expect(areas.replaceArea).toHaveBeenCalledWith(city);
     expect(coverage.markActivitiesPendingForArea).toHaveBeenCalledWith(91738);
     expect(coverage.matchPendingActivities).toHaveBeenCalledWith();
-    expect(calls).toEqual([
-      "markActivitiesPendingForArea:91738",
-      "replaceArea",
-      "matchPendingActivities",
-    ]);
+    expect(calls).toEqual(["markActivitiesPendingForArea:91738", "replaceArea", "matchPendingActivities"]);
     expect(result).toEqual({ name: "Colombes", segmentCount: 3000, streetLengthMeters: 110_000, matchedRuns: 116 });
   });
 });

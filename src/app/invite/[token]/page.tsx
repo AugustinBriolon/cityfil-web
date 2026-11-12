@@ -63,8 +63,8 @@ export default async function InviteLandingPage({ params }: PageProps) {
               ))}
             </ul>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Already have Cityfil? Open the app to join this city board. New here? Get it on the App Store, sign in with
-              Strava, then open this link again — the invite is kept until you accept.
+              Already have Cityfil? Open the app to join this city board. New here? Get it on the App Store, sign in
+              with Strava, then open this link again — the invite is kept until you accept.
             </p>
             <div className="flex flex-col gap-3">
               <a

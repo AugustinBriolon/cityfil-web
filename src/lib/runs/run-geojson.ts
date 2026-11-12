@@ -201,11 +201,7 @@ function positionsNearlyEqual(a: Position, b: Position): boolean {
  * Liang–Barsky clip of a segment against an axis-aligned lng/lat box.
  * Returns null when the segment misses the box entirely.
  */
-export function clipSegmentToBounds(
-  from: Position,
-  to: Position,
-  bounds: LngLatBounds,
-): [Position, Position] | null {
+export function clipSegmentToBounds(from: Position, to: Position, bounds: LngLatBounds): [Position, Position] | null {
   const [[xMin, yMin], [xMax, yMax]] = bounds;
   const x0 = from[0]!;
   const y0 = from[1]!;

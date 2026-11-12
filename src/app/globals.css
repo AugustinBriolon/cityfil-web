@@ -193,19 +193,7 @@
 
   /* Soft fade at the top/bottom edge of a scrollable region. */
   .scroll-fade {
-    mask-image: linear-gradient(
-      to bottom,
-      transparent,
-      #000 0.75rem,
-      #000 calc(100% - 0.75rem),
-      transparent
-    );
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      transparent,
-      #000 0.75rem,
-      #000 calc(100% - 0.75rem),
-      transparent
-    );
+    mask-image: linear-gradient(to bottom, transparent, #000 0.75rem, #000 calc(100% - 0.75rem), transparent);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 0.75rem, #000 calc(100% - 0.75rem), transparent);
   }
 }
