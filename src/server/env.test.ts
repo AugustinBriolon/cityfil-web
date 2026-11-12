@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
+import { hashAdminPassword } from "./admin/admin-password";
 import { parseServerEnv } from "./env";
 
 const validEnv = {
@@ -33,5 +34,12 @@ describe("parseServerEnv", () => {
     expect(attempt).toThrow(/AUTH_SECRET/);
     expect(attempt).toThrow(/DATABASE_URL/);
     expect(attempt).not.toThrow(/short-secret-value/);
+  });
+
+  it("accepts a generated admin password hash and rejects a plain password", async () => {
+    const hash = await hashAdminPassword("admin-password");
+
+    expect(parseServerEnv({ ...validEnv, ADMIN_PASSWORD_HASH: hash }).ADMIN_PASSWORD_HASH).toBe(hash);
+    expect(() => parseServerEnv({ ...validEnv, ADMIN_PASSWORD_HASH: "admin-password" })).toThrow(/ADMIN_PASSWORD_HASH/);
   });
 });

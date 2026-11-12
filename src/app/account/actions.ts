@@ -8,8 +8,7 @@ import { getServices } from "@/server/services";
 import { getCurrentUser } from "@/server/session";
 
 export type SetVisibilityResult =
-  | { status: "success"; visibility: ProfileVisibility }
-  | { status: "error"; message: string };
+  { status: "success"; visibility: ProfileVisibility } | { status: "error"; message: string };
 
 export async function setProfileVisibility(visibility: ProfileVisibility): Promise<SetVisibilityResult> {
   const parsed = parseProfileVisibility(visibility);

@@ -38,3 +38,24 @@ export function formatDuration(seconds: number): string {
   const minutes = totalMinutes % 60;
   return `${hours}h ${String(minutes).padStart(2, "0")}`;
 }
+
+const relativeFormatter = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
+const RELATIVE_UNITS: readonly [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 365 * 24 * 3600],
+  ["month", 30 * 24 * 3600],
+  ["week", 7 * 24 * 3600],
+  ["day", 24 * 3600],
+  ["hour", 3600],
+  ["minute", 60],
+];
+
+/** "3 days ago", "yesterday", "just now" — or "Never" for a missing date. */
+export function formatRelativeTime(date: Date | null, now: Date = new Date()): string {
+  if (!date) return "Never";
+  const elapsedSeconds = (now.getTime() - date.getTime()) / 1000;
+  for (const [unit, seconds] of RELATIVE_UNITS) {
+    if (Math.abs(elapsedSeconds) >= seconds)
+      return relativeFormatter.format(-Math.round(elapsedSeconds / seconds), unit);
+  }
+  return "just now";
+}

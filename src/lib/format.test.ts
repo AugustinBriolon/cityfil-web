@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatDuration,
   formatHours,
+  formatRelativeTime,
   formatKilometers,
   formatPercent,
   formatRunDate,
@@ -39,5 +40,20 @@ describe("formatters", () => {
 
   it("formats a run's duration over an hour as h and padded minutes", () => {
     expect(formatDuration(3600 + 5 * 60)).toBe("1h 05");
+  });
+});
+
+describe("formatRelativeTime", () => {
+  const now = new Date("2026-11-12T12:00:00Z");
+
+  it("names the largest whole unit", () => {
+    expect(formatRelativeTime(new Date("2026-11-12T11:59:30Z"), now)).toBe("just now");
+    expect(formatRelativeTime(new Date("2026-11-12T09:00:00Z"), now)).toBe("3 hours ago");
+    expect(formatRelativeTime(new Date("2026-11-11T12:00:00Z"), now)).toBe("yesterday");
+    expect(formatRelativeTime(new Date("2026-10-01T12:00:00Z"), now)).toBe("last month");
+  });
+
+  it("says Never for a missing date", () => {
+    expect(formatRelativeTime(null, now)).toBe("Never");
   });
 });

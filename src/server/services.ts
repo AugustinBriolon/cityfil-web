@@ -5,6 +5,7 @@ import { createDatabase, type Database } from "./db/client";
 import { getServerEnv } from "./env";
 import { createNominatimClient } from "./osm/nominatim-client";
 import { createOverpassClient } from "./osm/overpass-client";
+import { createAccountSummaryRepository } from "./repositories/account-summary-repository";
 import { createActivityRepository } from "./repositories/activity-repository";
 import { createAreaRepository } from "./repositories/area-repository";
 import { createCityCatalogRepository } from "./repositories/city-catalog-repository";
@@ -53,6 +54,7 @@ function buildServices(database: Database) {
   return {
     users,
     accounts,
+    accountSummaries: createAccountSummaryRepository(database),
     activities,
     areas,
     catalog,

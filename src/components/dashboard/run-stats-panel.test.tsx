@@ -5,7 +5,9 @@ import { RunStatsPanel } from "./run-stats-panel";
 
 vi.mock("next/link", () => ({
   default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => (
-    <a href={href} {...props}>{children}</a>
+    <a href={href} {...props}>
+      {children}
+    </a>
   ),
 }));
 
@@ -50,7 +52,7 @@ describe("RunStatsPanel", () => {
     expect(await within(panel).findByText("250")).toBeInTheDocument();
     expect(within(panel).getByText("Countries")).toBeInTheDocument();
     expect(await within(panel).findByText("7")).toBeInTheDocument();
-    expect(within(panel).getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(within(panel).getByRole("link", { name: "Account" })).toBeInTheDocument();
     expect(within(panel).getByRole("img", { name: "Powered by Strava" })).toBeInTheDocument();
     expect(within(panel).getByText("Streets")).toBeInTheDocument();
     expect(within(panel).getByText("La Garenne-Colombes")).toBeInTheDocument();

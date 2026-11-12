@@ -1,7 +1,9 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
+import { createAccountSummaryRepository } from "@/server/repositories/account-summary-repository";
 import { createActivityRepository } from "@/server/repositories/activity-repository";
 import { createStravaAccountRepository } from "@/server/repositories/strava-account-repository";
+import { createUserCityRepository } from "@/server/repositories/user-city-repository";
 import { createUserRepository } from "@/server/repositories/user-repository";
 import { toActivityRecord } from "@/server/strava/run-activity";
 
@@ -13,6 +15,8 @@ const testDatabase = createTestDatabase();
 const users = createUserRepository(testDatabase.database);
 const accounts = createStravaAccountRepository(testDatabase.database);
 const activities = createActivityRepository(testDatabase.database);
+const userCities = createUserCityRepository(testDatabase.database);
+const accountSummaries = createAccountSummaryRepository(testDatabase.database);
 
 const tokens = {
   accessTokenEncrypted: "encrypted-access",
@@ -116,5 +120,34 @@ describe("Postgres repositories", () => {
 
     expect(await accounts.findByAthleteId(42)).toBeUndefined();
     expect(await activities.listByUser(user.id)).toEqual([]);
+  });
+
+  describe("account summaries", () => {
+    it("aggregates runs, distance and cities per account in one query", async () => {
+      const ada = await linkAthlete(42, "Ada");
+      const bob = await linkAthlete(43, "Bob");
+      await activities.upsertMany([
+        toActivityRecord(buildStravaActivity({ id: 1, distance: 5000, start_date: "2026-09-01T06:00:00Z" }), ada.id),
+        toActivityRecord(buildStravaActivity({ id: 2, distance: 7000, start_date: "2026-09-03T06:00:00Z" }), ada.id),
+      ]);
+      await userCities.upsertMany(ada.id, [{ osmRelationId: 1, name: "Colombes" }]);
+
+      const summaries = await accountSummaries.list();
+
+      expect(summaries.map((summary) => summary.displayName)).toEqual(["Bob", "Ada"]);
+      expect(await accountSummaries.find(ada.id)).toMatchObject({
+        runCount: 2,
+        distanceMeters: 12000,
+        cityCount: 1,
+        stravaConnected: true,
+        visibility: "private",
+        lastRunAt: new Date("2026-09-03T06:00:00Z"),
+      });
+      expect(await accountSummaries.find(bob.id)).toMatchObject({ runCount: 0, distanceMeters: 0, lastRunAt: null });
+    });
+
+    it("finds nothing for an unknown account", async () => {
+      expect(await accountSummaries.find("00000000-0000-4000-8000-000000000000")).toBeUndefined();
+    });
   });
 });

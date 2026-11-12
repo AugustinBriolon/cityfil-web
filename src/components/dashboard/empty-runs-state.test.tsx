@@ -1,4 +1,10 @@
-vi.mock("next/link", () => ({ default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => <a href={href} {...props}>{children}</a> }));
+vi.mock("next/link", () => ({
+  default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
 
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -34,7 +40,7 @@ describe("EmptyRunsState", () => {
 
   it("keeps settings reachable before any run is imported", () => {
     renderState({ status: "idle" });
-    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Account" })).toBeInTheDocument();
   });
 
   it("stops loading and offers a retry when the import fails", async () => {

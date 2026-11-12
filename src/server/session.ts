@@ -23,3 +23,12 @@ export async function requireCurrentUser(): Promise<User> {
   if (!user) redirect("/login");
   return user;
 }
+
+export async function isAdminSession(): Promise<boolean> {
+  return (await auth())?.user?.role === "admin";
+}
+
+/** Every admin page AND server action calls this: the role is re-checked on each request, not just on page load. */
+export async function requireAdmin(): Promise<void> {
+  if (!(await isAdminSession())) redirect("/admin/login");
+}

@@ -23,6 +23,7 @@
     "osm:import-queue": "tsx --env-file=.env.local scripts/drain-city-import-queue.ts",
     "coverage:rematch": "tsx --env-file=.env.local scripts/rematch-coverage.ts",
     "osm:purge-non-communes": "tsx --env-file=.env.local scripts/purge-non-communes.ts",
+    "admin:hash-password": "tsx scripts/hash-admin-password.ts",
     "strava:webhook:subscribe": "tsx --env-file=.env.local scripts/subscribe-strava-webhook.ts",
     "maplibre:workers": "mkdir -p public/maplibre && cp node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs public/maplibre/",
     "postinstall": "pnpm maplibre:workers"

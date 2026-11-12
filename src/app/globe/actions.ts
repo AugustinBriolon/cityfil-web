@@ -6,8 +6,8 @@ import { redirect } from "next/navigation";
 import { signIn, signOut } from "@/auth";
 import type { RunSyncActionResult } from "@/lib/runs/run-sync-result";
 import { MANUAL_SYNC_MAX_ATTEMPTS, tryConsumeManualSync } from "@/server/runs/manual-sync-rate-limit";
-import { SESSION_EXPIRED_FAILURE, toSyncFailure } from "@/server/runs/to-sync-failure";
-import { scheduleCityPipeline, scheduleHistoryThenCities } from "@/server/services/city-pipeline";
+import { syncRunsNow } from "@/server/runs/sync-runs-now";
+import { SESSION_EXPIRED_FAILURE } from "@/server/runs/to-sync-failure";
 import { getServices } from "@/server/services";
 import { getCurrentUser } from "@/server/session";
 
@@ -25,16 +25,9 @@ export async function syncRuns(): Promise<RunSyncActionResult> {
     };
   }
 
-  try {
-    const result = await getServices().runSync.syncRuns(user.id);
-    if (result.continues) scheduleHistoryThenCities(user.id);
-    scheduleCityPipeline(user.id);
-    refresh();
-    return { status: "success", syncedRuns: result.syncedRuns };
-  } catch (error) {
-    console.error("Run sync failed", error);
-    return { status: "error", ...toSyncFailure(error) };
-  }
+  const result = await syncRunsNow(user.id);
+  if (result.status === "success") refresh();
+  return result;
 }
 
 /**
