@@ -1,8 +1,5 @@
 import type { Activity } from "@/server/db/schema";
-import {
-  MATCH_ACTIVITY_BATCH_SIZE,
-  type CoverageRepository,
-} from "@/server/repositories/coverage-repository";
+import { MATCH_ACTIVITY_BATCH_SIZE, type CoverageRepository } from "@/server/repositories/coverage-repository";
 
 /** Records which activities were matched, without simulating actual street geometry. */
 export function createInMemoryCoverageRepository(
@@ -71,6 +68,9 @@ export function createInMemoryCoverageRepository(
       return 0;
     },
     async listSeasonCoveredMeters() {
+      return [];
+    },
+    async listCityRanking() {
       return [];
     },
   };

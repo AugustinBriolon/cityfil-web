@@ -41,6 +41,12 @@ describe("createConquestService", () => {
       async sumActivityDistanceInArea(userId) {
         return distances.get(userId) ?? 0;
       },
+      async listCityRanking(areaId) {
+        return [...coverageRows].flatMap(([userId, rows]) => {
+          const found = rows.find((row) => row.areaId === areaId);
+          return found ? [{ userId, coveredMeters: found.coveredMeters }] : [];
+        });
+      },
       async listSeasonCoveredMeters() {
         return [...season.entries()].map(([userId, meters]) => ({ userId, meters }));
       },
@@ -94,9 +100,7 @@ describe("createConquestService", () => {
         tokenExpiresAt: NOW,
       },
     );
-    harness.coverageRows.set(user.id, [
-      city({ coveredMeters: shareMeters, strictCoveredMeters: shareMeters }),
-    ]);
+    harness.coverageRows.set(user.id, [city({ coveredMeters: shareMeters, strictCoveredMeters: shareMeters })]);
     harness.distances.set(user.id, shareMeters);
     return user;
   }
@@ -188,6 +192,45 @@ describe("createConquestService", () => {
       founderOpen: false,
       conquerorOpen: false,
       keeperOpen: false,
+    });
+  });
+
+  describe("getCityRanking", () => {
+    it("ranks everyone but names only the viewer, rivals and public profiles", async () => {
+      const ada = await addUser("Ada", 3_000);
+      const grace = await addUser("Grace", 5_000);
+      const bea = await addUser("Bea", 9_000);
+      await harness.repositories.users.updateVisibility(grace.id, "public");
+
+      const ranking = await harness.service.getCityRanking(ada.id, RENNES, 50);
+
+      expect(ranking?.total).toBe(3);
+      expect(ranking?.entries.map(({ rank, displayName, isYou }) => ({ rank, displayName, isYou }))).toEqual([
+        { rank: 1, displayName: null, isYou: false },
+        { rank: 2, displayName: "Grace", isYou: false },
+        { rank: 3, displayName: "Ada", isYou: true },
+      ]);
+      const payload = JSON.stringify(ranking);
+      expect(payload).not.toContain("Bea");
+      expect(payload).not.toContain(bea.id);
+    });
+
+    it("names a private rival and keeps the viewer's real rank past the limit", async () => {
+      const ada = await addUser("Ada", 1_000);
+      const grace = await addUser("Grace", 5_000);
+      await addUser("Bea", 9_000);
+      const { token } = await harness.service.createInvite(grace.id, RENNES);
+      await harness.service.acceptInvite(ada.id, token);
+
+      const ranking = await harness.service.getCityRanking(ada.id, RENNES, 2);
+
+      expect(ranking?.entries.map((entry) => entry.displayName)).toEqual([null, "Grace"]);
+      expect(ranking?.you).toMatchObject({ rank: 3, displayName: "Ada", isYou: true });
+    });
+
+    it("refuses a city that is not on the viewer's profile", async () => {
+      const ada = await addUser("Ada");
+      await expect(harness.service.getCityRanking(ada.id, 99, 50)).resolves.toBeNull();
     });
   });
 });

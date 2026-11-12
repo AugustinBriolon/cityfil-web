@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import { isCityComplete, keeperSeason, pickCityTitles } from "@/lib/conquest/city-titles";
+import { rankingWindow, type RankedRunner } from "@/lib/conquest/ranking";
 import { decideInvite, inviteExpiresAt } from "@/lib/conquest/invite";
 import {
   canSeeRunner,
@@ -67,6 +68,23 @@ export type CityBoard = {
   };
 };
 
+/** One line of a city ranking. A private runner has no name, avatar or id: nothing to trace back. */
+export type RankingEntry = {
+  rank: number;
+  share: number;
+  isYou: boolean;
+  displayName: string | null;
+  avatarUrl: string | null;
+};
+
+export type CityRanking = {
+  areaId: number;
+  name: string;
+  total: number;
+  entries: RankingEntry[];
+  you: RankingEntry;
+};
+
 export type InvitePreview = {
   areaId: number;
   cityName: string;
@@ -84,6 +102,7 @@ export type ConquestService = {
   acceptInvite: (userId: string, token: string) => Promise<{ areaId: number }>;
   previewInvite: (token: string) => Promise<InvitePreview | null>;
   getCityBoard: (viewerId: string, areaId: number) => Promise<CityBoard | null>;
+  getCityRanking: (viewerId: string, areaId: number, limit: number) => Promise<CityRanking | null>;
 };
 
 type Dependencies = {
@@ -269,6 +288,41 @@ export function createConquestService({
           conquerors: hallConquerors.slice(0, 5),
         },
       };
+    },
+
+    async getCityRanking(viewerId, areaId, limit) {
+      const cities = await coverage.listCityCoverage(viewerId);
+      const city = cities.find((entry) => entry.areaId === areaId);
+      if (!city) return null;
+
+      const [runners, rivalIds] = await Promise.all([
+        coverage.listCityRanking(areaId),
+        conquests.listRivalIds(viewerId, areaId),
+      ]);
+      const { top, you, total } = rankingWindow(
+        runners,
+        { userId: viewerId, coveredMeters: city.coveredMeters },
+        city.totalMeters,
+        limit,
+      );
+      const shown = new Set([you, ...top].map((runner) => runner.userId));
+      const profiles = new Map((await users.findByIds([...shown])).map((user) => [user.id, user]));
+      const rivalSet = new Set(rivalIds);
+
+      const toEntry = ({ userId, rank, share }: RankedRunner): RankingEntry => {
+        const profile = profiles.get(userId);
+        const visibility = parseProfileVisibility(profile?.profileVisibility) ?? DEFAULT_PROFILE_VISIBILITY;
+        const named = profile && canSeeRunner({ viewerId, targetId: userId, rivalIds: rivalSet, visibility });
+        return {
+          rank,
+          share,
+          isYou: userId === viewerId,
+          displayName: named ? profile.displayName : null,
+          avatarUrl: named ? profile.avatarUrl : null,
+        };
+      };
+
+      return { areaId, name: city.name, total, entries: top.map(toEntry), you: toEntry(you) };
     },
   };
 }
