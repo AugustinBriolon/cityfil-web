@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export const PRIVACY_LAST_UPDATED = "November 12, 2026";
-export const PRIVACY_CONTACT_EMAIL = "augustin.briolon@gmail.com";
+export const PRIVACY_CONTACT_EMAIL = "contact@cityfil.run";
 
 const INLINE_LINK_CLASS =
   "text-foreground underline underline-offset-4 outline-none hover:text-ember focus-visible:ring-2 focus-visible:ring-ring";

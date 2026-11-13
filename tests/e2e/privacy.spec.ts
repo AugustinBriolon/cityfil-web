@@ -8,9 +8,9 @@ test.describe("privacy and data deletion", () => {
     await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByRole("dialog", { name: "Privacy" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Deleting your data" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "augustin.briolon@gmail.com" })).toHaveAttribute(
+    await expect(page.getByRole("link", { name: "contact@cityfil.run" })).toHaveAttribute(
       "href",
-      "mailto:augustin.briolon@gmail.com",
+      "mailto:contact@cityfil.run",
     );
   });
 

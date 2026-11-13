@@ -15,6 +15,9 @@ const serverEnvSchema = z.object({
     error: `Must be a base64-encoded ${TOKEN_ENCRYPTION_KEY_BYTES}-byte key (openssl rand -base64 32)`,
   }),
   STRAVA_WEBHOOK_VERIFY_TOKEN: z.string().min(16),
+  /** App Review sign-in (iOS): both or neither. The code is what the reviewer types; the user is the demo account. */
+  REVIEW_ACCESS_CODE: z.string().min(16).optional(),
+  REVIEW_ACCESS_USER_ID: z.uuid().optional(),
   /** Absent → the admin console is disabled. Generate with `pnpm admin:hash-password`. */
   ADMIN_PASSWORD_HASH: z
     .string()
