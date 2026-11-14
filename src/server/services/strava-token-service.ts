@@ -34,17 +34,21 @@ export function createStravaTokenService({ accounts, strava, cipher, now }: Depe
     };
   }
 
+  // Under the row lock and with the newest stored refresh token, so a concurrent refresh can never make
+  // this one fail with a token it already rotated (a 4xx here would otherwise read as a revocation).
   async function refresh(account: StravaAccount): Promise<string> {
-    const response = await strava.refreshAccessToken(cipher.decrypt(account.refreshTokenEncrypted));
-    await accounts.updateTokens(
-      account.athleteId,
-      encrypt({
+    let accessToken: string | undefined;
+    await accounts.rotateTokens(account.athleteId, async (current) => {
+      const response = await strava.refreshAccessToken(cipher.decrypt(current.refreshTokenEncrypted));
+      accessToken = response.access_token;
+      return encrypt({
         accessToken: response.access_token,
         refreshToken: response.refresh_token,
         expiresAtEpochSeconds: response.expires_at,
-      }),
-    );
-    return response.access_token;
+      });
+    });
+    if (accessToken === undefined) throw new Error(`Strava account ${account.athleteId} is no longer linked`);
+    return accessToken;
   }
 
   return {

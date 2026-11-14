@@ -69,6 +69,23 @@ describe("Postgres repositories", () => {
         lastSyncedAt: syncedAt,
       });
     });
+
+    it("serializes token rotations so each one sees the previous result", async () => {
+      await linkAthlete(42);
+      const seen: string[] = [];
+      const rotateTo = (next: string) => async (current: { refreshTokenEncrypted: string }) => {
+        seen.push(current.refreshTokenEncrypted);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { ...tokens, refreshTokenEncrypted: next };
+      };
+
+      await Promise.all([accounts.rotateTokens(42, rotateTo("first")), accounts.rotateTokens(42, rotateTo("second"))]);
+
+      // The second rotation waited for the lock and read the first one's write, not the original token.
+      expect(seen[0]).toBe("encrypted-refresh");
+      expect(["first", "second"]).toContain(seen[1]);
+      await expect(accounts.rotateTokens(999, rotateTo("x"))).resolves.toBe(false);
+    });
   });
 
   describe("activities", () => {

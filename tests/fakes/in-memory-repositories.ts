@@ -9,6 +9,8 @@ export function createInMemoryRepositories() {
   const accountRows = new Map<number, StravaAccount>();
   const activityRows = new Map<number, Activity>();
   let nextUserNumber = 1;
+  // Mirrors the row lock of rotateTokens: one rotation per athlete at a time.
+  const rotationQueues = new Map<number, Promise<unknown>>();
 
   const users: UserRepository = {
     async findById(userId) {
@@ -75,6 +77,21 @@ export function createInMemoryRepositories() {
     async updateTokens(athleteId, tokens) {
       const account = accountRows.get(athleteId);
       if (account) accountRows.set(athleteId, { ...account, ...tokens });
+    },
+    async rotateTokens(athleteId, rotate) {
+      const previous = rotationQueues.get(athleteId) ?? Promise.resolve();
+      const rotation = previous
+        .catch(() => undefined)
+        .then(async () => {
+          const current = accountRows.get(athleteId);
+          if (!current) return false;
+          const tokens = await rotate(current);
+          const latest = accountRows.get(athleteId);
+          if (latest) accountRows.set(athleteId, { ...latest, ...tokens });
+          return true;
+        });
+      rotationQueues.set(athleteId, rotation);
+      return rotation;
     },
     async markSynced(athleteId, syncedAt) {
       const account = accountRows.get(athleteId);

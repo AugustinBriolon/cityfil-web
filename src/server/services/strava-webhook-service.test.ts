@@ -104,6 +104,33 @@ describe("createStravaWebhookService", () => {
     expect(await harness.accounts.findByAthleteId(HARNESS_ATHLETE_ID)).toBeUndefined();
   });
 
+  it("keeps the user when concurrent forged deauthorizations race the refresh-token rotation", async () => {
+    // Strava-like rotation: each refresh token works once, then is rejected.
+    const spent = new Set<string>();
+    let generation = 0;
+    harness.strava.refreshAccessToken.mockImplementation(async (refreshToken) => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      if (spent.has(refreshToken)) throw new StravaApiError(400, "Bad Request");
+      spent.add(refreshToken);
+      generation += 1;
+      return {
+        access_token: `access-${generation}`,
+        refresh_token: `refresh-${generation}`,
+        expires_at: 2_000_000_000,
+      };
+    });
+    const deauthorization = activityEvent({
+      object_type: "athlete",
+      aspect_type: "update",
+      updates: { authorized: "false" },
+    });
+
+    await Promise.all([service.handleEvent(deauthorization), service.handleEvent(deauthorization)]);
+
+    expect(await harness.users.findById(harness.user.id)).toBeDefined();
+    expect(harness.strava.refreshAccessToken.mock.calls.map(([token]) => token)).toEqual(["refresh", "refresh-1"]);
+  });
+
   it("keeps the user when a forged deauthorization is contradicted by Strava", async () => {
     await service.handleEvent(
       activityEvent({ object_type: "athlete", aspect_type: "update", updates: { authorized: "false" } }),

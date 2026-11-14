@@ -13,6 +13,11 @@ export type StravaAccountRepository = {
     account: Pick<StravaAccount, "athleteId"> & StravaTokens,
   ) => Promise<User>;
   updateTokens: (athleteId: number, tokens: StravaTokens) => Promise<void>;
+  /**
+   * Locks the account row, hands its current tokens to `rotate` and stores what it returns, so concurrent
+   * refreshes run one after another, each with the newest refresh token. Resolves false when the account is gone.
+   */
+  rotateTokens: (athleteId: number, rotate: (current: StravaAccount) => Promise<StravaTokens>) => Promise<boolean>;
   markSynced: (athleteId: number, syncedAt: Date) => Promise<void>;
   setHistorySyncPage: (athleteId: number, page: number | null) => Promise<void>;
 };
@@ -34,6 +39,21 @@ export function createStravaAccountRepository(database: Database): StravaAccount
     },
     async updateTokens(athleteId, tokens) {
       await database.update(stravaAccounts).set(tokens).where(eq(stravaAccounts.athleteId, athleteId));
+    },
+    async rotateTokens(athleteId, rotate) {
+      return database.transaction(async (transaction) => {
+        const [current] = await transaction
+          .select()
+          .from(stravaAccounts)
+          .where(eq(stravaAccounts.athleteId, athleteId))
+          .for("update");
+        if (!current) return false;
+        await transaction
+          .update(stravaAccounts)
+          .set(await rotate(current))
+          .where(eq(stravaAccounts.athleteId, athleteId));
+        return true;
+      });
     },
     async markSynced(athleteId, syncedAt) {
       await database
