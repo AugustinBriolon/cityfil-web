@@ -63,6 +63,7 @@ export function createInMemoryCoverageRepository(
         jumpCount: 0,
         jumpMeters: 0,
         coversAll: false,
+        maneuvers: [],
       };
     },
     async getFinishMeters() {

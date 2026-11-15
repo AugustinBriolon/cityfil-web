@@ -12,6 +12,19 @@ export type PlanSegment = {
    * without counting toward city coverage %. Defaults to true when omitted.
    */
   countsForCoverage?: boolean;
+  /** OSM street name, spoken in turn instructions. */
+  name?: string | null;
+};
+
+export type PlanManeuverType = "left" | "right" | "slight-left" | "slight-right" | "u-turn" | "arrive";
+
+/** One spoken instruction, placed on a vertex of the route so path and guidance cannot drift apart. */
+export type RunPlanManeuver = {
+  type: PlanManeuverType;
+  /** Street taken after the maneuver; null when OSM has no name for it. */
+  name: string | null;
+  /** Index into `RunPlanRoute.coordinates`. */
+  index: number;
 };
 
 export type PlanLegKind = "conquest" | "bridge" | "connector" | "jump";
@@ -41,6 +54,8 @@ export type RunPlanRoute = {
   coversAll: boolean;
   /** Path length at the moment the last unfinished street was added; null when the route stops short. */
   completeAtMeters: number | null;
+  /** Turns at real junctions, in route order, ending with the arrival. */
+  maneuvers: RunPlanManeuver[];
 };
 
 export type RunPlanRouteOptions = {
@@ -57,6 +72,13 @@ export type RunPlanRouteOptions = {
   salt?: number;
   /** Anchors the route at this [lng, lat] (the athlete's position) and only grows forward from it. */
   start?: Position;
+  /** Keep enough budget to run back, and end where the route starts. */
+  loop?: boolean;
+  /**
+   * Steer a loop outward early and homeward late. Off for the finishing walk: the steer depends on the
+   * budget, and the finish estimate must describe the same walk whatever budget is chosen later.
+   */
+  homewardSteer?: boolean;
 };
 
 /**
@@ -166,6 +188,7 @@ type DirectedEdge = {
   covered: boolean;
   countsForCoverage: boolean;
   coordinates: Position[];
+  name: string | null;
 };
 
 type StreetGraph = {
@@ -269,6 +292,7 @@ function buildStreetGraph(segments: readonly PlanSegment[], joinToleranceMeters:
       covered: segment.covered,
       countsForCoverage,
       coordinates: segment.coordinates,
+      name: segment.name ?? null,
     });
     addEdge({
       segmentId: segment.id,
@@ -278,6 +302,7 @@ function buildStreetGraph(segments: readonly PlanSegment[], joinToleranceMeters:
       covered: segment.covered,
       countsForCoverage,
       coordinates: [...segment.coordinates].reverse(),
+      name: segment.name ?? null,
     });
   }
 
@@ -298,16 +323,17 @@ function findBridgeToUncovered(
   usedSegments: ReadonlySet<number>,
   maxBridgeMeters: number,
 ): DirectedEdge[] | null {
-  type State = { node: NodeId; path: DirectedEdge[]; meters: number };
-  const queue: State[] = [{ node: from, path: [], meters: 0 }];
+  // Ranked by `cost`, capped by real `meters`: a street already run this outing costs triple, so the
+  // bridge goes around the block when it can and only runs back along a dead end when it must.
+  type State = { node: NodeId; path: DirectedEdge[]; meters: number; cost: number };
+  const queue: State[] = [{ node: from, path: [], meters: 0, cost: 0 }];
   const best = new Map<NodeId, number>([[from, 0]]);
 
   while (queue.length > 0) {
-    queue.sort((a, b) => a.meters - b.meters);
+    queue.sort((a, b) => a.cost - b.cost);
     const current = queue.shift()!;
-    if (current.meters > (best.get(current.node) ?? Infinity)) continue;
+    if (current.cost > (best.get(current.node) ?? Infinity)) continue;
 
-    // Already-walked streets stay walkable: leaving a dead end means running back along it.
     for (const edge of graph.outgoing.get(current.node) ?? []) {
       const nextMeters = current.meters + edge.lengthMeters;
       if (nextMeters > maxBridgeMeters) continue;
@@ -316,50 +342,14 @@ function findBridgeToUncovered(
         return current.path;
       }
 
+      const nextCost = current.cost + edge.lengthMeters * (usedSegments.has(edge.segmentId) ? 3 : 1);
       const known = best.get(edge.to);
-      if (known != null && known <= nextMeters) continue;
-      best.set(edge.to, nextMeters);
-      queue.push({ node: edge.to, path: [...current.path, edge], meters: nextMeters });
+      if (known != null && known <= nextCost) continue;
+      best.set(edge.to, nextCost);
+      queue.push({ node: edge.to, path: [...current.path, edge], meters: nextMeters, cost: nextCost });
     }
   }
   return null;
-}
-
-/** Walk unused covered streets to burn remaining budget when conquest streets are exhausted. */
-function findCoveredFillPath(
-  graph: StreetGraph,
-  from: NodeId,
-  usedSegments: ReadonlySet<number>,
-  maxMeters: number,
-): DirectedEdge[] | null {
-  type State = { node: NodeId; path: DirectedEdge[]; meters: number };
-  const queue: State[] = [{ node: from, path: [], meters: 0 }];
-  const best = new Map<NodeId, number>([[from, 0]]);
-  let bestPath: DirectedEdge[] | null = null;
-  let bestPathMeters = 0;
-
-  while (queue.length > 0) {
-    queue.sort((a, b) => a.meters - b.meters);
-    const current = queue.shift()!;
-    if (current.meters > (best.get(current.node) ?? Infinity)) continue;
-    if (current.path.length > 0 && current.meters > bestPathMeters) {
-      bestPath = current.path;
-      bestPathMeters = current.meters;
-      if (bestPathMeters >= maxMeters * 0.85) return bestPath;
-    }
-
-    for (const edge of graph.outgoing.get(current.node) ?? []) {
-      if (usedSegments.has(edge.segmentId)) continue;
-      if (isConquestEdge(edge)) continue;
-      const nextMeters = current.meters + edge.lengthMeters;
-      if (nextMeters > maxMeters) continue;
-      const known = best.get(edge.to);
-      if (known != null && known <= nextMeters) continue;
-      best.set(edge.to, nextMeters);
-      queue.push({ node: edge.to, path: [...current.path, edge], meters: nextMeters });
-    }
-  }
-  return bestPath;
 }
 
 function unusedUncoveredLengthAt(graph: StreetGraph, node: NodeId, usedSegments: ReadonlySet<number>): number {
@@ -373,40 +363,146 @@ function unusedUncoveredLengthAt(graph: StreetGraph, node: NodeId, usedSegments:
   return meters;
 }
 
-/** Prefer the unfinished street that unlocks the most remaining unexplored length at the far end. */
+/**
+ * Prefer the unfinished street that unlocks the most remaining unexplored length at the far end.
+ * `fits` rejects streets the budget cannot afford; `steer` adds a per-edge bonus (loop shaping).
+ */
 function pickUncoveredEdge(
   edges: DirectedEdge[],
   usedSegments: ReadonlySet<number>,
   graph: StreetGraph,
+  fits: (edge: DirectedEdge) => boolean = () => true,
+  steer: (edge: DirectedEdge) => number = () => 0,
 ): DirectedEdge | null {
-  const unused = edges.filter((edge) => !usedSegments.has(edge.segmentId) && isConquestEdge(edge));
-  if (unused.length === 0) return null;
-  return unused.reduce((best, edge) => {
+  let best: DirectedEdge | null = null;
+  let bestScore = -Infinity;
+  for (const edge of edges) {
+    if (usedSegments.has(edge.segmentId) || !isConquestEdge(edge) || !fits(edge)) continue;
     const usedNext = new Set(usedSegments);
     usedNext.add(edge.segmentId);
-    const score = edge.lengthMeters + unusedUncoveredLengthAt(graph, edge.to, usedNext) * 0.7;
-    const usedBest = new Set(usedSegments);
-    usedBest.add(best.segmentId);
-    const bestScore = best.lengthMeters + unusedUncoveredLengthAt(graph, best.to, usedBest) * 0.7;
-    return score > bestScore ? edge : best;
-  });
+    const score = edge.lengthMeters + unusedUncoveredLengthAt(graph, edge.to, usedNext) * 0.7 + steer(edge);
+    if (score > bestScore) {
+      best = edge;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
-function pickAnyUnusedEdge(
-  edges: DirectedEdge[],
-  usedSegments: ReadonlySet<number>,
-  preferUncovered: boolean,
-  avoidSegmentId?: number | null,
-): DirectedEdge | null {
-  const unused = edges.filter((edge) => !usedSegments.has(edge.segmentId));
-  if (unused.length === 0) return null;
-  const forward = avoidSegmentId == null ? unused : unused.filter((edge) => edge.segmentId !== avoidSegmentId);
-  const base = forward.length > 0 ? forward : unused;
-  const preferred = preferUncovered
-    ? base.filter((edge) => isConquestEdge(edge))
-    : base.filter((edge) => !isConquestEdge(edge));
-  const candidates = preferred.length > 0 ? preferred : base;
-  return candidates.reduce((best, edge) => (edge.lengthMeters > best.lengthMeters ? edge : best));
+/** Cheapest walk from `from` to every node (binary heap: a whole city is one pass). */
+function walkCosts(
+  graph: StreetGraph,
+  from: NodeId,
+  costOf: (edge: DirectedEdge) => number,
+): { cost: Map<NodeId, number>; via: Map<NodeId, DirectedEdge> } {
+  const cost = new Map<NodeId, number>([[from, 0]]);
+  const via = new Map<NodeId, DirectedEdge>();
+  const heap: [number, NodeId][] = [[0, from]];
+  while (heap.length > 0) {
+    const [current, node] = heap[0]!;
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+      heap[0] = last;
+      for (let i = 0; ;) {
+        const left = 2 * i + 1;
+        const right = left + 1;
+        let small = i;
+        if (left < heap.length && heap[left]![0] < heap[small]![0]) small = left;
+        if (right < heap.length && heap[right]![0] < heap[small]![0]) small = right;
+        if (small === i) break;
+        [heap[i], heap[small]] = [heap[small]!, heap[i]!];
+        i = small;
+      }
+    }
+    if (current > (cost.get(node) ?? Infinity)) continue;
+    for (const edge of graph.outgoing.get(node) ?? []) {
+      const next = current + costOf(edge);
+      if (next >= (cost.get(edge.to) ?? Infinity)) continue;
+      cost.set(edge.to, next);
+      via.set(edge.to, edge);
+      heap.push([next, edge.to]);
+      for (let i = heap.length - 1; i > 0;) {
+        const parent = (i - 1) >> 1;
+        if (heap[parent]![0] <= heap[i]![0]) break;
+        [heap[i], heap[parent]] = [heap[parent]!, heap[i]!];
+        i = parent;
+      }
+    }
+  }
+  return { cost, via };
+}
+
+/** An out-and-back shorter than this is a normal cul-de-sac visit and stays in the route. */
+const MIN_DETOUR_CORRIDOR_METERS = 150;
+
+/**
+ * Unfinished streets of detours that are not worth their way back: stretches where the route runs a
+ * corridor out, turns around somewhere, and runs the same corridor home, for less than twice the
+ * corridor in new street. Long dead ends and pockets behind a single street end up here.
+ */
+function wastefulDetourSegments(walked: readonly DirectedEdge[]): Set<number> {
+  const wasteful = new Set<number>();
+  const lastIndex = new Map<number, number>();
+  for (let j = 0; j < walked.length; j++) {
+    const i = lastIndex.get(walked[j]!.segmentId);
+    lastIndex.set(walked[j]!.segmentId, j);
+    // Only the first street of a retrace: the next ones belong to the same corridor.
+    if (i == null || (j > 0 && i + 1 < j && walked[j - 1]!.segmentId === walked[i + 1]!.segmentId)) continue;
+    let reach = 0;
+    let corridorMeters = 0;
+    while (
+      i - reach >= 0 &&
+      j + reach < walked.length &&
+      walked[i - reach]!.segmentId === walked[j + reach]!.segmentId
+    ) {
+      corridorMeters += walked[j + reach]!.lengthMeters;
+      reach += 1;
+    }
+    if (corridorMeters < MIN_DETOUR_CORRIDOR_METERS) continue;
+    const gained = new Map<number, number>();
+    for (const edge of walked.slice(i - reach + 1, j))
+      if (isConquestEdge(edge)) gained.set(edge.segmentId, edge.lengthMeters);
+    let gainedMeters = 0;
+    for (const meters of gained.values()) gainedMeters += meters;
+    if (gainedMeters < corridorMeters * 2) for (const segmentId of gained.keys()) wasteful.add(segmentId);
+  }
+  return wasteful;
+}
+
+function bearingDegrees(from: Position, to: Position): number {
+  const lat1 = toRadians(from[1]!);
+  const lat2 = toRadians(to[1]!);
+  const deltaLng = toRadians(to[0]! - from[0]!);
+  const y = Math.sin(deltaLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
+  return (Math.atan2(y, x) * 180) / Math.PI;
+}
+
+/** Heading read over this many metres either side of a junction, so a kinked last vertex doesn't fake a turn. */
+const TURN_SIGHT_METERS = 15;
+
+/** First vertex at least `TURN_SIGHT_METERS` from `index` walking `step` (-1 back, +1 ahead). */
+function sightVertex(coordinates: Position[], index: number, step: 1 | -1): Position {
+  let walked = 0;
+  let cursor = index;
+  while (coordinates[cursor + step] && walked < TURN_SIGHT_METERS) {
+    walked += distanceMeters(coordinates[cursor]!, coordinates[cursor + step]!);
+    cursor += step;
+  }
+  return coordinates[cursor]!;
+}
+
+/**
+ * Turn type from the change of heading at a vertex; null when the runner just keeps going.
+ * Exported for the thresholds' tests.
+ */
+export function turnType(deltaDegrees: number): PlanManeuverType | null {
+  const delta = ((((deltaDegrees + 180) % 360) + 360) % 360) - 180;
+  const size = Math.abs(delta);
+  if (size < 30) return null;
+  if (size > 155) return "u-turn";
+  const side = delta > 0 ? "right" : "left";
+  return size < 55 ? `slight-${side}` : side;
 }
 
 function pickFromWindow<T>(ranked: T[], windowSize: number, salt: number): T {
@@ -523,16 +619,6 @@ function anchoredSeedScore(segment: PlanSegment, start: Position, graph: StreetG
   return unusedUncoveredLengthAt(graph, farNode, used) * 10 + segment.lengthMeters - nearDist;
 }
 
-function isSeedReachableFrom(graph: StreetGraph, fromNode: NodeId, segment: PlanSegment): boolean {
-  const nodes = graph.segmentNodes.get(segment.id);
-  if (!nodes) return false;
-  const blocked = new Set<number>([segment.id]);
-  return (
-    shortestPath(graph, fromNode, nodes.start, blocked, MAX_START_CONNECTOR_METERS) != null ||
-    shortestPath(graph, fromNode, nodes.end, blocked, MAX_START_CONNECTOR_METERS) != null
-  );
-}
-
 function pickAnchoredSeed(
   uncovered: PlanSegment[],
   start: Position,
@@ -540,7 +626,15 @@ function pickAnchoredSeed(
   graph: StreetGraph,
   snapNode: NodeId,
 ): PlanSegment | null {
-  const reachable = uncovered.filter((segment) => isSeedReachableFrom(graph, snapNode, segment));
+  // One pass from the athlete instead of two searches per street. A walk to either end never needs
+  // the street itself: crossing it would reach its other end first.
+  const fromAthlete = walkCosts(graph, snapNode, (edge) => edge.lengthMeters).cost;
+  const reachable = uncovered.filter((segment) => {
+    const nodes = graph.segmentNodes.get(segment.id);
+    if (!nodes) return false;
+    const nearest = Math.min(fromAthlete.get(nodes.start) ?? Infinity, fromAthlete.get(nodes.end) ?? Infinity);
+    return nearest <= MAX_START_CONNECTOR_METERS;
+  });
   if (reachable.length === 0) return null;
   const componentMeters = indexUncoveredComponentMeters(graph, reachable);
   const ranked = [...reachable].sort((a, b) => {
@@ -614,6 +708,7 @@ function emptyRoute(): RunPlanRoute {
     legs: [],
     coversAll: false,
     completeAtMeters: null,
+    maneuvers: [],
   };
 }
 
@@ -625,21 +720,60 @@ function emptyRoute(): RunPlanRoute {
  * Long continuous OSM LineStrings are walked in full (any length is fine when on-network).
  */
 export function buildRunPlanRoute(segments: readonly PlanSegment[], options: RunPlanRouteOptions): RunPlanRoute {
+  const first = walkPlan(segments, options, new Set());
+  // The finishing walk has to take every street, dead ends included.
+  if (!options.loop || options.homewardSteer === false) return first.route;
+  // Re-plan without the detours that cost more than they conquer; the freed budget goes to other streets.
+  // A re-plan is kept only when it is worth more: where everything left is a dead end, the first walk wins.
+  const skipped = new Set<number>();
+  let best = first;
+  let candidate = first;
+  for (let round = 0; round < 4; round++) {
+    const wasteful = wastefulDetourSegments(candidate.walked);
+    if (wasteful.size === 0) break;
+    for (const segmentId of wasteful) skipped.add(segmentId);
+    candidate = walkPlan(segments, options, skipped);
+    // On a tie the cleaner loop wins, unless it conquers nothing or runs well past the distance asked
+    // (the walk to a far first street is not budgeted).
+    const acceptable = candidate.route.uncoveredMeters > 0 && candidate.route.pathMeters <= options.budgetMeters * 1.1;
+    if (acceptable && planWorth(candidate) >= planWorth(best)) best = candidate;
+  }
+  return best.route;
+}
+
+/** New street gained, minus every metre run a second time. */
+function planWorth(plan: { route: RunPlanRoute; walked: DirectedEdge[] }): number {
+  const seen = new Set<number>();
+  let repeatedMeters = 0;
+  for (const edge of plan.walked) {
+    if (seen.has(edge.segmentId)) repeatedMeters += edge.lengthMeters;
+    seen.add(edge.segmentId);
+  }
+  return plan.route.uncoveredMeters - repeatedMeters;
+}
+
+function walkPlan(
+  segments: readonly PlanSegment[],
+  options: RunPlanRouteOptions,
+  skipped: ReadonlySet<number>,
+): { route: RunPlanRoute; walked: DirectedEdge[] } {
   const budgetMeters = Math.max(0, options.budgetMeters);
   const joinToleranceMeters = options.joinToleranceMeters ?? DEFAULT_JOIN_TOLERANCE_METERS;
   const maxBridgeMeters = bridgeBudgetMeters(budgetMeters, options.maxBridgeMeters);
   const salt = options.salt ?? 0;
 
-  const uncovered = segments.filter(
+  const unfinished = segments.filter(
     (segment) => !segment.covered && isCoverageSegment(segment) && segment.coordinates.length >= 2,
   );
-  if (uncovered.length === 0 || budgetMeters <= 0) {
-    return emptyRoute();
+  if (unfinished.length === 0 || budgetMeters <= 0) {
+    return { route: emptyRoute(), walked: [] };
   }
 
+  const graph = buildStreetGraph(segments, joinToleranceMeters);
+  const uncovered = unfinished.filter((segment) => !skipped.has(segment.id));
+  if (uncovered.length === 0) return { route: emptyRoute(), walked: [] };
   const focus = centroidOf(uncovered.map((segment) => midpoint(segment.coordinates)));
   const metersByCell = indexUncoveredDensity(uncovered);
-  const graph = buildStreetGraph(segments, joinToleranceMeters);
   const anchor = options.start;
   /** Unfinished streets that exist as graph edges: the ones a route can actually walk. */
   const walkableUnfinished = new Set<number>();
@@ -651,10 +785,10 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
   let snapNode: NodeId | null = null;
   if (anchor) {
     const snap = nearestNode(graph, anchor, MAX_ANCHOR_SNAP_METERS);
-    if (snap == null) return emptyRoute();
+    if (snap == null) return { route: emptyRoute(), walked: [] };
     snapNode = snap.node;
     const anchored = pickAnchoredSeed(uncovered, anchor, salt, graph, snap.node);
-    if (anchored == null) return emptyRoute();
+    if (anchored == null) return { route: emptyRoute(), walked: [] };
     seed = anchored;
   } else {
     seed = pickSeed(uncovered, metersByCell, salt, graph);
@@ -675,17 +809,18 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
     startAtFirst = distanceMeters(seedEnds.start, focus) >= distanceMeters(seedEnds.end, focus);
   }
 
-  const used = new Set<number>();
+  // Skipped detours count as taken: never picked, and a bridge treats them like any street already run.
+  const used = new Set<number>(skipped);
   /** Uncovered meters credited once — fill may rewalk streets without inflating conquest %. */
   const creditedUncovered = new Set<number>();
   const coords: Position[] = [];
+  /** Edges in route order: `coords` is the first one's vertices, then each next one's minus its first. */
+  const walked: DirectedEdge[] = [];
   const legs: RunPlanLeg[] = [];
   let uncoveredMeters = 0;
   let pathMeters = 0;
   let head = 0;
   let tail = 0;
-  let lastHeadSegmentId: number | null = null;
-  let lastTailSegmentId: number | null = null;
 
   function pushLeg(coordinates: Position[], kind: PlanLegKind) {
     const clean = dedupe(coordinates);
@@ -708,15 +843,23 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
     if (walkableUnfinished.has(segmentId)) creditedWalkable += 1;
   }
 
+  /** Metres back to the start from `node`; 0 when the route may end anywhere. */
+  let homeMeters: Map<NodeId, number> | null = null;
+  const reserve = (node: NodeId) => (homeMeters == null ? 0 : (homeMeters.get(node) ?? Infinity));
+  /** Largest budget any step needed so far (walked + way home): a loop is affordable only above it. */
+  let peakNeedMeters = 0;
+
   /** Called after each growth step, once its length is counted. */
   function noteCompletion() {
-    if (completeAtMeters == null && creditedWalkable >= walkableUnfinished.size) completeAtMeters = pathMeters;
+    peakNeedMeters = Math.max(peakNeedMeters, pathMeters + reserve(head));
+    if (completeAtMeters == null && creditedWalkable >= walkableUnfinished.size) completeAtMeters = peakNeedMeters;
   }
 
   function appendConnectorEdges(connector: DirectedEdge[]) {
     for (let index = 0; index < connector.length; index++) {
       const edge = connector[index]!;
       used.add(edge.segmentId);
+      walked.push(edge);
       pathMeters += edge.lengthMeters;
       if (isConquestEdge(edge)) creditUncovered(edge.segmentId, edge.lengthMeters);
       if (index === 0 && coords.length === 0) {
@@ -739,6 +882,18 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
     pathMeters += seed.lengthMeters;
     head = exitNode;
     tail = entryNode;
+    walked.push(
+      (graph.outgoing.get(entryNode) ?? []).find((edge) => edge.segmentId === seed.id && edge.to === exitNode) ?? {
+        segmentId: seed.id,
+        from: entryNode,
+        to: exitNode,
+        lengthMeters: seed.lengthMeters,
+        covered: false,
+        countsForCoverage: true,
+        coordinates: seedCoords,
+        name: seed.name ?? null,
+      },
+    );
 
     const seedLegStart = coords[coords.length - 1];
     if (seedLegStart) {
@@ -757,7 +912,7 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
 
   if (anchor) {
     // Snap + on-network walk to a reachable seed — never GPS→seed aerial chords.
-    if (snapNode == null || seedNodes == null) return emptyRoute();
+    if (snapNode == null || seedNodes == null) return { route: emptyRoute(), walked: [] };
 
     // Prefer unlock orientation when reachable; otherwise flip so the entry faces the athlete.
     // Seed is blocked during the approach so the connector cannot "walk the seed" then add it again.
@@ -770,14 +925,14 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
       if (connector == null) continue;
       appendConnectorEdges(connector);
       if (!applySeed(orientation)) {
-        return emptyRoute();
+        return { route: emptyRoute(), walked: [] };
       }
       connected = true;
       break;
     }
-    if (!connected) return emptyRoute();
+    if (!connected) return { route: emptyRoute(), walked: [] };
   } else {
-    if (!applySeed(startAtFirst)) return emptyRoute();
+    if (!applySeed(startAtFirst)) return { route: emptyRoute(), walked: [] };
   }
 
   function appendEdge(edge: DirectedEdge, end: "head" | "tail") {
@@ -791,7 +946,7 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
       coords.push(...edge.coordinates.slice(1));
       pushLeg([tip, ...edge.coordinates.slice(1)], kind);
       head = edge.to;
-      lastHeadSegmentId = edge.segmentId;
+      walked.push(edge);
     } else {
       const tip = coords[0]!;
       coords.unshift(...edge.coordinates.slice(1).reverse());
@@ -800,7 +955,8 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
       const prepended = legs.pop()!;
       legs.unshift(prepended);
       tail = edge.to;
-      lastTailSegmentId = edge.segmentId;
+      // The route runs this street the other way round.
+      walked.unshift({ ...edge, from: edge.to, to: edge.from, coordinates: [...edge.coordinates].reverse() });
     }
   }
 
@@ -809,63 +965,51 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
     if (remaining <= 0) return false;
     const node = end === "head" ? head : tail;
     const edges = graph.outgoing.get(node) ?? [];
+    // A street is affordable when it and the way home from its far end still fit the budget.
+    const fits = (from: number) => (edge: DirectedEdge) =>
+      from + edge.lengthMeters + reserve(edge.to) <= remaining + 80;
+    // Loop shaping: leave the start during the first third, drift back to it after half the budget.
+    const phase = pathMeters / budgetMeters;
+    const pull = !steerHome ? 0 : phase < 0.33 ? -0.6 : phase > 0.5 ? 1.2 : 0;
+    const steer = (edge: DirectedEdge) => pull * (reserve(edge.from) - reserve(edge.to));
 
-    const uncoveredEdge = pickUncoveredEdge(edges, used, graph);
-    if (uncoveredEdge && uncoveredEdge.lengthMeters <= remaining + 80) {
+    const uncoveredEdge = pickUncoveredEdge(edges, used, graph, fits(0), steer);
+    if (uncoveredEdge) {
       appendEdge(uncoveredEdge, end);
       return true;
     }
 
     const bridge = findBridgeToUncovered(graph, node, used, Math.min(maxBridgeMeters, remaining));
-    if (bridge != null) {
+    if (bridge != null && bridge.length > 0) {
       const bridgeMeters = bridge.reduce((sum, edge) => sum + edge.lengthMeters, 0);
-      if (bridgeMeters <= remaining) {
-        let cursor = node;
-        for (const hop of bridge) {
-          appendEdge(hop, end);
-          cursor = hop.to;
-          if (pathMeters >= budgetMeters) return true;
-        }
-        const nextUncovered = pickUncoveredEdge(graph.outgoing.get(cursor) ?? [], used, graph);
-        if (nextUncovered && nextUncovered.lengthMeters <= budgetMeters - pathMeters + 80) {
-          appendEdge(nextUncovered, end);
-          return true;
-        }
-        if (bridge.length > 0) return true;
+      const landing = bridge[bridge.length - 1]!.to;
+      // Only cross when an unfinished street at the far side is still affordable: a bridge to nowhere is pure repeat.
+      const nextUncovered = pickUncoveredEdge(
+        graph.outgoing.get(landing) ?? [],
+        used,
+        graph,
+        fits(bridgeMeters),
+        steer,
+      );
+      if (nextUncovered) {
+        for (const hop of bridge) appendEdge(hop, end);
+        appendEdge(nextUncovered, end);
+        return true;
       }
     }
 
     return false;
   }
 
-  function extendFill(end: "head" | "tail"): boolean {
-    const remaining = budgetMeters - pathMeters;
-    if (remaining <= 0) return false;
-    const node = end === "head" ? head : tail;
-    const edges = graph.outgoing.get(node) ?? [];
-    const avoid = end === "head" ? lastHeadSegmentId : lastTailSegmentId;
+  // An anchored route keeps its tail at the athlete, and a loop its tail at the start: only the head grows.
+  const loop = options.loop === true && seedNodes != null;
+  const growTail = !anchor && !loop;
+  const home = snapNode ?? tail;
+  if (loop) homeMeters = walkCosts(graph, home, (edge) => edge.lengthMeters).cost;
+  const steerHome = loop && options.homewardSteer !== false;
 
-    // Prefer covered streets and avoid immediate U-turns when another edge exists.
-    const local = pickAnyUnusedEdge(edges, used, false, avoid);
-    if (local && local.lengthMeters <= remaining + 80) {
-      appendEdge(local, end);
-      return true;
-    }
-
-    const fill = findCoveredFillPath(graph, node, used, remaining);
-    if (!fill || fill.length === 0) return false;
-    for (const hop of fill) {
-      if (pathMeters >= budgetMeters) break;
-      if (hop.lengthMeters > budgetMeters - pathMeters + 80) break;
-      appendEdge(hop, end);
-    }
-    return true;
-  }
-
-  // An anchored route keeps its tail at the athlete, so only the head grows.
-  const growTail = !anchor;
-
-  // Phase 1 — conquest: unfinished streets and covered / connector bridges only (no aerial hops).
+  // Conquest: unfinished streets and covered / connector bridges only (no aerial hops).
+  // No filler afterwards: once nothing new is affordable the outing ends, shorter than asked if need be.
   noteCompletion();
   let grew = true;
   let guard = 0;
@@ -878,35 +1022,61 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
     grew = grewHead || grewTail;
   }
 
-  // Phase 2 — fill remaining budget.
-  // Conquest often ends at cul-de-sac tips of a small unfinished pocket; the exit onto the
-  // wider (covered) network sits mid-path. Clearing `used` lets fill walk back through the
-  // pocket and into the city graph so 5 / 8 / 12 km preferences can be met. Uncovered meters
-  // stay credited once via `creditedUncovered`.
-  used.clear();
-  const fillTarget = budgetMeters * 0.97;
-  let fillRounds = 0;
-  const maxFillRounds = 12;
-  while (pathMeters < fillTarget && fillRounds < maxFillRounds && guard < 160_000) {
-    grew = true;
-    let progressed = false;
-    while (grew && pathMeters < fillTarget && guard < 160_000) {
-      guard += 1;
-      const grewHead = extendFill("head");
-      const grewTail = growTail && pathMeters < fillTarget ? extendFill("tail") : false;
-      grew = grewHead || grewTail;
-      if (grew) progressed = true;
-    }
-    if (pathMeters >= fillTarget) break;
-    if (!progressed) break;
-    used.clear();
-    fillRounds += 1;
+  if (loop && head !== home) {
+    // Way home: unfinished streets are cheap, streets already run this outing are dear, so the return
+    // draws the other side of the loop instead of the same line backwards.
+    const walkedSegments = new Set(walked.map((edge) => edge.segmentId));
+    const wayHome = (costOf: (edge: DirectedEdge) => number) => {
+      const back = walkCosts(graph, head, costOf).via;
+      const hops: DirectedEdge[] = [];
+      for (let node = home; node !== head;) {
+        const edge = back.get(node);
+        if (!edge) break;
+        hops.unshift(edge);
+        node = edge.from;
+      }
+      return hops;
+    };
+    let hops = wayHome((edge) => {
+      if (walkedSegments.has(edge.segmentId)) return edge.lengthMeters * 3;
+      return isConquestEdge(edge) ? edge.lengthMeters * 0.6 : edge.lengthMeters;
+    });
+    // The scenic way home may not blow the distance asked for: fall back to the direct one.
+    const homeLength = hops.reduce((sum, edge) => sum + edge.lengthMeters, 0);
+    if (pathMeters + homeLength > budgetMeters * 1.08) hops = wayHome((edge) => edge.lengthMeters);
+    for (const hop of hops) appendEdge(hop, "head");
   }
 
-  const coordinates = dedupe(coords);
-  if (coordinates.length < 2) {
-    return emptyRoute();
+  // Same de-duplication as `dedupe`, keeping where each junction vertex ends up.
+  const coordinates: Position[] = [];
+  const keptIndex: number[] = [];
+  for (const point of coords) {
+    const last = coordinates[coordinates.length - 1];
+    if (!last || last[0] !== point[0] || last[1] !== point[1]) coordinates.push(point);
+    keptIndex.push(coordinates.length - 1);
   }
+  if (coordinates.length < 2) {
+    return { route: emptyRoute(), walked: [] };
+  }
+
+  const maneuvers: RunPlanManeuver[] = [];
+  let rawIndex = (walked[0]?.coordinates.length ?? 1) - 1;
+  for (let i = 0; i + 1 < walked.length; i++) {
+    const current = walked[i]!;
+    const next = walked[i + 1]!;
+    const index = keptIndex[rawIndex]!;
+    rawIndex += next.coordinates.length - 1;
+    const turnsBack = next.segmentId === current.segmentId;
+    const branches = new Set((graph.outgoing.get(current.to) ?? []).map((edge) => edge.segmentId)).size;
+    // Two streets meeting is a bend, not a choice: nothing to say.
+    if (!turnsBack && branches < 3) continue;
+    const heading =
+      bearingDegrees(coordinates[index]!, sightVertex(coordinates, index, 1)) -
+      bearingDegrees(sightVertex(coordinates, index, -1), coordinates[index]!);
+    const type = turnsBack ? "u-turn" : turnType(heading);
+    if (type) maneuvers.push({ type, name: next.name, index });
+  }
+  maneuvers.push({ type: "arrive", name: null, index: coordinates.length - 1 });
 
   // Anchored plans keep the athlete's GPS as the true start. Network walking still begins at
   // the nearest street node; the GPS→snap segment is a single approach jump (not mid-route hops).
@@ -918,6 +1088,7 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
     const approachMeters = distanceMeters(anchor, networkEntry);
     if (approachMeters >= ANCHOR_JUMP_MIN_METERS) {
       coordinates.unshift(anchor);
+      for (const maneuver of maneuvers) maneuver.index += 1;
       legs.unshift({ coordinates: [anchor, networkEntry], kind: "jump" });
       jumpCount = 1;
       jumpMeters = approachMeters;
@@ -925,7 +1096,7 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
     }
   }
 
-  return {
+  const route: RunPlanRoute = {
     coordinates,
     uncoveredMeters,
     pathMeters: pathMeters + jumpMeters,
@@ -935,10 +1106,19 @@ export function buildRunPlanRoute(segments: readonly PlanSegment[], options: Run
     legs,
     coversAll: completeAtMeters != null,
     completeAtMeters: completeAtMeters == null ? null : completeAtMeters + jumpMeters,
+    maneuvers,
   };
+  return { route, walked };
 }
 
-type OutingOptions = { budgetMeters: number; salt?: number; start?: Position; maxBridgeMeters?: number };
+type OutingOptions = {
+  budgetMeters: number;
+  salt?: number;
+  start?: Position;
+  maxBridgeMeters?: number;
+  loop?: boolean;
+  homewardSteer?: boolean;
+};
 type Outing = { route: RunPlanRoute; startsFromPosition: boolean };
 
 /** Anchored at the athlete when the start snaps onto the network, city-centred otherwise. */
@@ -949,7 +1129,7 @@ function planFromStartOrCity(segments: readonly PlanSegment[], options: OutingOp
   return { route: buildRunPlanRoute(segments, { ...options, start: undefined }), startsFromPosition: false };
 }
 
-const finishingOptions = { salt: 0, maxBridgeMeters: FINISH_BRIDGE_METERS };
+const finishingOptions = { salt: 0, maxBridgeMeters: FINISH_BRIDGE_METERS, homewardSteer: false };
 
 /**
  * The outing for this budget. When it stops short of the city's last streets but the budget is enough
@@ -977,13 +1157,14 @@ export function planOuting(segments: readonly PlanSegment[], options: OutingOpti
  * null when it takes more than {@link MAX_FINISH_BUDGET_METERS} or some streets are unreachable on foot.
  * Uses the same walk as {@link planOuting}'s finishing fallback, so any budget at or above it finishes.
  */
-export function estimateFinishMeters(segments: readonly PlanSegment[], start?: Position): number | null {
+export function estimateFinishMeters(segments: readonly PlanSegment[], start?: Position, loop = false): number | null {
   const unfinished = unfinishedMeters(segments);
   if (unfinished === 0) return 0;
   if (unfinished > MAX_FINISH_BUDGET_METERS) return null;
   const { route } = planFromStartOrCity(segments, {
     budgetMeters: MAX_FINISH_BUDGET_METERS,
     start,
+    loop,
     ...finishingOptions,
   });
   return route.completeAtMeters;

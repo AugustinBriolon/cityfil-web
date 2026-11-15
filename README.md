@@ -33,7 +33,8 @@ runs; this package is the web globe plus the mobile API.
 - Exposes a **mobile API** under `/api/mobile/*` (Strava OAuth callback → JWT, `GET /api/mobile/me` for cities /
   coverage) consumed by `cityfil-app`. `GET /api/mobile/cities/nearby` ranks the runner's cities by distance
   from a position, and `GET /api/mobile/cities/plan` builds a walkable run route on OSM streets (plus pedestrian connectors that do not count toward %). Distance is a soft preference (~±15–20%); the planner stays on the street / connector graph only (ADR 0014 — no aerial hops). Optionally starts from the runner's
-  position (`startLat`/`startLng`), only within 1 km of the city boundary.
+  position (`startLat`/`startLng`), only within 1 km of the city boundary. Plans are loops that end where they
+  start unless `loop=0`, and carry the turn instructions (`plan.maneuvers`) the app speaks (ADR 0017).
 - City rivalries: `POST /api/mobile/cities/invite` mints a 14-day link, `POST /api/mobile/cities/invite/accept`
   pairs two runners on one city, `GET /api/mobile/cities/:areaId/board` returns rivals plus Founder / Conqueror /
   Keeper titles. `PATCH /api/mobile/me` sets `profileVisibility` (`private` by default). Public names appear on the

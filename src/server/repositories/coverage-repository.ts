@@ -5,6 +5,7 @@ import type { CityCoverage, CoveredStreets } from "@/lib/coverage/street-coverag
 import {
   estimateFinishMeters,
   planOuting,
+  type RunPlanManeuver,
   runPlanRouteToGeoJson,
   type PlanSegment,
 } from "@/lib/coverage/run-plan-route";
@@ -59,6 +60,8 @@ export type CoverageRepository = {
     startsFromPosition: boolean;
     /** The route runs every unfinished street left in the city. */
     coversAll: boolean;
+    /** Turn instructions, indexed on the route's coordinates. */
+    maneuvers: RunPlanManeuver[];
   }>;
   /** Outing length that finishes the city from `start` (see `estimateFinishMeters`). */
   getFinishMeters: (userId: string, areaId: number, start?: LngLat) => Promise<number | null>;
@@ -70,7 +73,7 @@ export type CoverageRepository = {
   listCityRanking: (areaId: number) => Promise<{ userId: string; coveredMeters: number }[]>;
 };
 
-export type RunPlanRequestOptions = { salt?: number; start?: LngLat };
+export type RunPlanRequestOptions = { salt?: number; start?: LngLat; loop?: boolean };
 
 export function createCoverageRepository(
   database: Database,
@@ -112,6 +115,7 @@ export function createCoverageRepository(
       length_meters: number;
       covered: boolean;
       counts_for_coverage: boolean;
+      name: string | null;
     }>(sql`
       WITH uncovered AS (
         SELECT segment.id
@@ -125,7 +129,8 @@ export function createCoverageRepository(
         ST_AsGeoJSON(segment.path, 6) AS geometry,
         segment.length_meters::float8 AS length_meters,
         (NOT EXISTS (SELECT 1 FROM uncovered WHERE uncovered.id = segment.id)) AS covered,
-        segment.counts_for_coverage AS counts_for_coverage
+        segment.counts_for_coverage AS counts_for_coverage,
+        segment.name AS name
       FROM street_segments AS segment
       WHERE segment.area_id = ${areaId}
     `);
@@ -139,6 +144,7 @@ export function createCoverageRepository(
           lengthMeters: row.length_meters,
           covered: Boolean(row.covered),
           countsForCoverage: Boolean(row.counts_for_coverage),
+          name: row.name,
         },
       ];
     });
@@ -386,13 +392,14 @@ export function createCoverageRepository(
       return new Map(rows.map((row) => [Number(row.area_id), row.distance_meters]));
     },
 
-    async getRunPlanStreets(userId, areaId, budgetMeters, { salt = 0, start } = {}) {
+    async getRunPlanStreets(userId, areaId, budgetMeters, { salt = 0, start, loop = true } = {}) {
       const budget = Math.max(500, Math.min(budgetMeters, 40_000));
       const segments = await loadPlanSegments(userId, areaId);
       const { route, startsFromPosition } = planOuting(segments, {
         budgetMeters: budget,
         salt,
         start: start ? [start.lng, start.lat] : undefined,
+        loop,
       });
       return {
         streets: runPlanRouteToGeoJson(route, areaId) as CoveredStreets,
@@ -402,12 +409,14 @@ export function createCoverageRepository(
         jumpMeters: route.jumpMeters,
         startsFromPosition,
         coversAll: route.coversAll,
+        maneuvers: route.maneuvers,
       };
     },
 
     async getFinishMeters(userId, areaId, start) {
       const segments = await loadPlanSegments(userId, areaId);
-      return estimateFinishMeters(segments, start ? [start.lng, start.lat] : undefined);
+      // Loop length: the app plans loops by default, and a budget that closes the loop also finishes an open run.
+      return estimateFinishMeters(segments, start ? [start.lng, start.lat] : undefined, true);
     },
 
     async sumActivityDistanceInArea(userId, areaId) {

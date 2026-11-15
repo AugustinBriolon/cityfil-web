@@ -9,6 +9,7 @@ import {
   planOuting,
   planPocketExpandDegrees,
   runPlanRouteToGeoJson,
+  turnType,
   type PlanSegment,
 } from "./run-plan-route";
 
@@ -198,7 +199,7 @@ describe("buildRunPlanRoute", () => {
     expect(route.legs.some((leg) => leg.kind === "jump")).toBe(false);
   });
 
-  it("can fill across a long covered gap once conquest is stuck", () => {
+  it("ends the outing rather than padding it once no new street is in reach", () => {
     const left = seg(
       1,
       [
@@ -232,22 +233,8 @@ describe("buildRunPlanRoute", () => {
       maxBridgeMeters: 120,
     });
 
-    // Conquest bridge is capped at 120 m, but fill still walks the covered corridor to grow.
-    expect(route.pathMeters).toBeGreaterThan(300);
-  });
-
-  it("fills with covered streets so a longer budget yields a longer path", () => {
-    const unfinished = chain(1, 5, false, 2.0, 100);
-    const covered = chain(100, 40, true, 2.0 + 5 * 0.00135, 100);
-    const segments = [...unfinished, ...covered];
-
-    const short = buildRunPlanRoute(segments, { budgetMeters: 800, salt: 0 });
-    const long = buildRunPlanRoute(segments, { budgetMeters: 3_000, salt: 0 });
-
-    expect(short.pathMeters).toBeGreaterThanOrEqual(700);
-    expect(short.pathMeters).toBeLessThan(1_200);
-    expect(long.pathMeters).toBeGreaterThan(short.pathMeters + 1_000);
-    expect(long.pathMeters).toBeGreaterThanOrEqual(2_500);
+    // The next unfinished street sits beyond the 120 m bridge cap: no filler laps to reach the budget.
+    expect(route.pathMeters).toBe(80);
   });
 
   it("grows the path when the selected distance increases on uncovered-only network", () => {
@@ -430,17 +417,6 @@ describe("buildRunPlanRoute", () => {
     expect(route.pathMeters).toBeLessThanOrEqual(420);
   });
 
-  it("loops covered streets so a small unfinished pocket can still approach a longer budget", () => {
-    const unfinished = chain(1, 3, false, 2.0, 100);
-    const covered = chain(100, 50, true, 2.0 + 3 * 0.00135, 100);
-    const short = buildRunPlanRoute([...unfinished, ...covered], { budgetMeters: 2_000, salt: 0 });
-    const longer = buildRunPlanRoute([...unfinished, ...covered], { budgetMeters: 5_000, salt: 0 });
-
-    expect(short.pathMeters).toBeGreaterThanOrEqual(1_700);
-    expect(longer.pathMeters).toBeGreaterThan(short.pathMeters + 1_500);
-    expect(longer.pathMeters).toBeGreaterThanOrEqual(4_200);
-  });
-
   it("stays fast when many sub-tolerance stubs touch one large unfinished pocket", () => {
     // Paris shape: stubs shorter than the join tolerance collapse to a single node, so they have no
     // graph edge. Each one used to re-flood the whole pocket, blowing seed ranking up quadratically.
@@ -519,6 +495,101 @@ describe("finishing a city", () => {
   });
 });
 
+/** A 100 m city block, corner A at [2, 48], run counter-clockwise A → B → C → D. */
+const A: [number, number] = [2, 48];
+const B: [number, number] = [2.00135, 48];
+const C: [number, number] = [2.00135, 48.0009];
+const D: [number, number] = [2, 48.0009];
+function block(): PlanSegment[] {
+  return [
+    seg(1, [A, B], false, 100),
+    seg(2, [B, C], false, 100),
+    seg(3, [C, D], false, 100),
+    seg(4, [D, A], false, 100),
+  ];
+}
+
+describe("loops", () => {
+  it("ends where it starts", () => {
+    const route = buildRunPlanRoute(block(), { budgetMeters: 1_000, start: A, loop: true });
+    expect(route.uncoveredMeters).toBe(400);
+    expect(route.coordinates[0]).toEqual(A);
+    expect(route.coordinates.at(-1)).toEqual(A);
+  });
+
+  it("keeps enough budget to run home", () => {
+    // 20 blocks east then nothing: without the reserve the route would spend all 1 km going away.
+    const street = chain(1, 20, false);
+    const route = buildRunPlanRoute(street, { budgetMeters: 1_000, start: [2, 48], loop: true });
+    expect(route.coordinates.at(-1)).toEqual([2, 48]);
+    expect(route.pathMeters).toBeLessThanOrEqual(1_100);
+    expect(route.uncoveredMeters).toBeGreaterThanOrEqual(400);
+  });
+
+  it("leaves out a long dead end that would be run out and back", () => {
+    const deadEnd = [0, 1, 2, 3].map((index) =>
+      seg(
+        10 + index,
+        [
+          [C[0] + index * 0.00135, C[1]],
+          [C[0] + (index + 1) * 0.00135, C[1]],
+        ],
+        false,
+        100,
+      ),
+    );
+    const route = buildRunPlanRoute([...block(), ...deadEnd], { budgetMeters: 1_500, start: A, loop: true });
+    expect(route.uncoveredMeters).toBe(400);
+    expect(route.coordinates.every(([lng]) => lng! <= C[0] + 1e-9)).toBe(true);
+    expect(route.coordinates.at(-1)).toEqual(A);
+  });
+
+  it("still runs the dead end when it is all that is left", () => {
+    const route = buildRunPlanRoute(chain(1, 4, false), { budgetMeters: 1_000, start: [2, 48], loop: true });
+    expect(route.uncoveredMeters).toBe(400);
+  });
+
+  it("estimates a finishing length that includes the way home", () => {
+    const streets = comb();
+    const finish = estimateFinishMeters(streets, undefined, true)!;
+    expect(finish).toBeGreaterThan(estimateFinishMeters(streets)!);
+    const { route } = planOuting(streets, { budgetMeters: Math.ceil(finish), salt: 0, loop: true });
+    expect(route.coversAll).toBe(true);
+    expect(route.coordinates.at(-1)).toEqual(route.coordinates[0]);
+  });
+});
+
+describe("maneuvers", () => {
+  it("classifies the change of heading", () => {
+    expect(turnType(10)).toBeNull();
+    expect(turnType(40)).toBe("slight-right");
+    expect(turnType(90)).toBe("right");
+    expect(turnType(-90)).toBe("left");
+    expect(turnType(270)).toBe("left");
+    expect(turnType(175)).toBe("u-turn");
+  });
+
+  it("announces a turn at a junction, named after the street taken, and the arrival", () => {
+    const west: [number, number] = [2, 48];
+    const junction: [number, number] = [2.00135, 48];
+    const streets: PlanSegment[] = [
+      seg(1, [west, junction], false, 100),
+      { ...seg(2, [junction, [2.00135, 48.0009]], false, 100), name: "Rue du Nord" },
+      seg(3, [junction, [2.0027, 48]], true, 100),
+    ];
+    const route = buildRunPlanRoute(streets, { budgetMeters: 200, start: west });
+    expect(route.maneuvers).toEqual([
+      { type: "left", name: "Rue du Nord", index: 1 },
+      { type: "arrive", name: null, index: 2 },
+    ]);
+  });
+
+  it("says nothing where two streets simply meet at a corner", () => {
+    const route = buildRunPlanRoute(block(), { budgetMeters: 1_000, start: A, loop: true });
+    expect(route.maneuvers.map((maneuver) => maneuver.type)).toEqual(["arrive"]);
+  });
+});
+
 describe("runPlanRouteToGeoJson", () => {
   it("emits a single LineString feature for a non-empty route", () => {
     const geojson = runPlanRouteToGeoJson(
@@ -535,6 +606,7 @@ describe("runPlanRouteToGeoJson", () => {
         legs: [],
         coversAll: false,
         completeAtMeters: null,
+        maneuvers: [],
       },
       42,
     );

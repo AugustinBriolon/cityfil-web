@@ -14,6 +14,8 @@ const querySchema = z
     salt: z.coerce.number().int().min(0).max(1_000_000).optional().default(0),
     startLat: z.coerce.number().min(-90).max(90).optional(),
     startLng: z.coerce.number().min(-180).max(180).optional(),
+    /** "0" lets the run end away from its start; loops are the default. */
+    loop: z.enum(["0", "1"]).optional().default("1"),
   })
   .refine((query) => (query.startLat == null) === (query.startLng == null), {
     message: "startLat and startLng go together",
@@ -34,6 +36,7 @@ export async function GET(request: Request) {
     salt: url.searchParams.get("salt") ?? undefined,
     startLat: url.searchParams.get("startLat") ?? undefined,
     startLng: url.searchParams.get("startLng") ?? undefined,
+    loop: url.searchParams.get("loop") ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_query" }, { status: 400 });
@@ -72,6 +75,7 @@ export async function GET(request: Request) {
   const plan = await services.coverage.getRunPlanStreets(userOrError.id, city.areaId, budgetMeters, {
     salt: parsed.data.salt,
     start,
+    loop: parsed.data.loop === "1",
   });
   const estimatedShareGain =
     city.totalMeters <= 0 ? 0 : Math.min(1 - (share ?? 0), plan.targetMeters / city.totalMeters);
@@ -99,6 +103,7 @@ export async function GET(request: Request) {
         startsFromPosition: plan.startsFromPosition,
         coversAll: plan.coversAll,
         streets: plan.streets,
+        maneuvers: plan.maneuvers,
         note: "Follow the gold route on unfinished streets. Gray links are walkable connectors that do not add coverage. The path stays on the street network (no shortcuts through blocks). Distance is approximate.",
       },
     },
