@@ -856,6 +856,8 @@ function nearestConnectedNode(graph: StreetGraph, point: Position): NodeId | und
 
 /** Street distance is about this much longer than the straight line between the same points. */
 const STREET_DETOUR_FACTOR = 1.35;
+/** What one doubling-back costs a loop when candidates are ranked: enough to lose to any clean loop. */
+const HAIRPIN_PENALTY_METERS = 600;
 /** Loops kept for "another route": the best ones, each a different shape. */
 const ROUND_TRIP_CHOICES = 5;
 
@@ -939,17 +941,28 @@ function roundTrips(graph: StreetGraph, home: NodeId, budgetMeters: number): Rou
         let meters = 0;
         let newMeters = 0;
         let repeatMeters = 0;
+        let hairpins = 0;
         let tip: Position | undefined;
+        let heading: number | undefined;
         for (const edge of walked) {
-          if (tip) meters += distanceMeters(tip, edge.coordinates[0]!);
+          const points = edge.coordinates;
+          if (tip) meters += distanceMeters(tip, points[0]!);
           meters += drawnMeters(edge);
-          tip = edge.coordinates[edge.coordinates.length - 1];
+          // A waypoint on a small triangle of streets is left by doubling back along its other side:
+          // not a U-turn on one street, but it runs like one.
+          // Read from where the runner stands, as the maneuvers are: joined streets rarely share an exact vertex.
+          if (tip && heading != null && turnType(bearingDegrees(tip, points[1]!) - heading) === "u-turn") {
+            hairpins += 1;
+          }
+          heading = bearingDegrees(points[points.length - 2]!, points[points.length - 1]!);
+          tip = points[points.length - 1];
           if (seen.has(edge.segmentId)) repeatMeters += edge.lengthMeters;
           else if (isConquestEdge(edge)) newMeters += edge.lengthMeters;
           seen.add(edge.segmentId);
         }
         // A runner forgives a loop a little short or long far more easily than a street run twice.
-        const score = newMeters - 4 * repeatMeters - 1.5 * Math.abs(meters - budgetMeters);
+        const score =
+          newMeters - 4 * repeatMeters - 1.5 * Math.abs(meters - budgetMeters) - HAIRPIN_PENALTY_METERS * hairpins;
         const shape = [...seen].sort((a, b) => a - b).join(",");
         if (score > (trips.get(shape)?.score ?? -Infinity))
           trips.set(shape, { walked, meters, newMeters, repeatMeters, score });
