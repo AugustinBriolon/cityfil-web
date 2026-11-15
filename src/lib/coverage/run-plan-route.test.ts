@@ -559,6 +559,56 @@ describe("loops", () => {
   });
 });
 
+/** A 7 x 7 junction grid of 100 m blocks, nothing run yet. */
+function grid(): PlanSegment[] {
+  const at = (column: number, row: number): [number, number] => [2 + column * 0.00135, 48 + row * 0.0009];
+  const streets: PlanSegment[] = [];
+  for (let row = 0; row < 7; row++) {
+    for (let column = 0; column < 7; column++) {
+      if (column < 6) streets.push(seg(streets.length + 1, [at(column, row), at(column + 1, row)], false, 100));
+      if (row < 6) streets.push(seg(streets.length + 1, [at(column, row), at(column, row + 1)], false, 100));
+    }
+  }
+  return streets;
+}
+
+describe("round trips", () => {
+  // 20 m off the central junction, as a GPS fix on a pavement would be.
+  const athlete: [number, number] = [2 + 3 * 0.00135 + 0.0002, 48 + 3 * 0.0009 + 0.0001];
+  const plan = (salt = 0) => buildRunPlanRoute(grid(), { budgetMeters: 1_600, start: athlete, loop: true, salt });
+
+  it("starts and ends on the athlete's exact position", () => {
+    const route = plan();
+    expect(route.coordinates[0]).toEqual(athlete);
+    expect(route.coordinates.at(-1)).toEqual(athlete);
+    expect(route.maneuvers.at(-1)).toEqual({ type: "arrive", name: null, index: route.coordinates.length - 1 });
+  });
+
+  it("never runs a street twice nor turns back", () => {
+    const route = plan();
+    const streets = route.coordinates.slice(1, -1);
+    const run = new Set<string>();
+    for (let i = 1; i < streets.length; i++) {
+      const street = [streets[i - 1]!.join(","), streets[i]!.join(",")].sort().join("|");
+      expect(run.has(street)).toBe(false);
+      run.add(street);
+    }
+    expect(route.maneuvers.some((maneuver) => maneuver.type === "u-turn")).toBe(false);
+  });
+
+  it("stays close to the distance asked", () => {
+    const route = plan();
+    expect(route.pathMeters).toBeGreaterThanOrEqual(1_600 * 0.85);
+    expect(route.pathMeters).toBeLessThanOrEqual(1_600 * 1.15);
+    expect(route.uncoveredMeters).toBeGreaterThanOrEqual(1_200);
+  });
+
+  it("offers a different loop when asked for another route", () => {
+    expect(plan(2).coordinates).not.toEqual(plan(1).coordinates);
+    expect(plan(1).coordinates).toEqual(plan(0).coordinates);
+  });
+});
+
 describe("maneuvers", () => {
   it("classifies the change of heading", () => {
     expect(turnType(10)).toBeNull();

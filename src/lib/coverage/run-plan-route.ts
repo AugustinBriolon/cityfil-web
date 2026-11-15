@@ -697,6 +697,347 @@ function shortestPath(
   return null;
 }
 
+/** Turns at real junctions along `walked`, then the arrival. `keptIndex` maps raw vertices to `coordinates`. */
+function maneuversAlong(
+  graph: StreetGraph,
+  walked: readonly DirectedEdge[],
+  coordinates: Position[],
+  keptIndex: readonly number[],
+): RunPlanManeuver[] {
+  const maneuvers: RunPlanManeuver[] = [];
+  let rawIndex = (walked[0]?.coordinates.length ?? 1) - 1;
+  for (let i = 0; i + 1 < walked.length; i++) {
+    const current = walked[i]!;
+    const next = walked[i + 1]!;
+    const index = keptIndex[rawIndex]!;
+    rawIndex += next.coordinates.length - 1;
+    const turnsBack = next.segmentId === current.segmentId;
+    const branches = new Set((graph.outgoing.get(current.to) ?? []).map((edge) => edge.segmentId)).size;
+    // Two streets meeting is a bend, not a choice: nothing to say.
+    if (!turnsBack && branches < 3) continue;
+    const heading =
+      bearingDegrees(coordinates[index]!, sightVertex(coordinates, index, 1)) -
+      bearingDegrees(sightVertex(coordinates, index, -1), coordinates[index]!);
+    const type = turnsBack ? "u-turn" : turnType(heading);
+    if (type) maneuvers.push({ type, name: next.name, index });
+  }
+  maneuvers.push({ type: "arrive", name: null, index: coordinates.length - 1 });
+  return maneuvers;
+}
+
+/** Ends a loop on the athlete's exact position instead of the nearest junction; returns the metres added. */
+function closeOnAnchor(
+  coordinates: Position[],
+  legs: RunPlanLeg[],
+  maneuvers: RunPlanManeuver[],
+  anchor: Position,
+): number {
+  const networkExit = coordinates[coordinates.length - 1]!;
+  const meters = distanceMeters(networkExit, anchor);
+  if (meters < ANCHOR_JUMP_MIN_METERS) return 0;
+  coordinates.push(anchor);
+  legs.push({ coordinates: [networkExit, anchor], kind: "jump" });
+  const arrival = maneuvers[maneuvers.length - 1];
+  if (arrival?.type === "arrive") arrival.index = coordinates.length - 1;
+  return meters;
+}
+
+/** Nodes left once dead-end branches are peeled off: every one of them has a way on that is not the way in. */
+function throughNodes(graph: StreetGraph): Set<NodeId> {
+  const open = new Map<NodeId, Map<number, NodeId>>();
+  for (const [node, edges] of graph.outgoing) open.set(node, new Map(edges.map((edge) => [edge.segmentId, edge.to])));
+  const leaves = [...open].filter(([, edges]) => edges.size <= 1).map(([node]) => node);
+  while (leaves.length > 0) {
+    const leaf = leaves.pop()!;
+    const edges = open.get(leaf);
+    if (!edges) continue;
+    open.delete(leaf);
+    for (const [segmentId, far] of edges) {
+      const farEdges = open.get(far);
+      if (!farEdges) continue;
+      farEdges.delete(segmentId);
+      if (farEdges.size <= 1) leaves.push(far);
+    }
+  }
+  return new Set(open.keys());
+}
+
+/** What a metre costs the loop search: new street is cheap, a street already in this loop nearly forbidden. */
+const NEW_STREET_COST = 0.45;
+const REPEAT_COST = 12;
+
+/**
+ * Cheapest walk from `from` to `target` that never turns back on the street it arrives by.
+ * The search runs on directed streets rather than junctions, which is what makes a U-turn unrepresentable.
+ */
+function walkWithoutTurningBack(
+  graph: StreetGraph,
+  from: NodeId,
+  arrivedBy: DirectedEdge | null,
+  target: NodeId,
+  taken: ReadonlySet<number>,
+  maxMeters: number,
+): DirectedEdge[] | null {
+  if (from === target) return [];
+  type State = { edge: DirectedEdge; meters: number; via: State | null };
+  const best = new Map<DirectedEdge, number>();
+  const heap: [number, State][] = [];
+  const push = (cost: number, state: State) => {
+    heap.push([cost, state]);
+    for (let i = heap.length - 1; i > 0;) {
+      const parent = (i - 1) >> 1;
+      if (heap[parent]![0] <= heap[i]![0]) break;
+      [heap[i], heap[parent]] = [heap[parent]!, heap[i]!];
+      i = parent;
+    }
+  };
+  const pop = (): [number, State] => {
+    const top = heap[0]!;
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+      heap[0] = last;
+      for (let i = 0; ;) {
+        const left = 2 * i + 1;
+        const right = left + 1;
+        let small = i;
+        if (left < heap.length && heap[left]![0] < heap[small]![0]) small = left;
+        if (right < heap.length && heap[right]![0] < heap[small]![0]) small = right;
+        if (small === i) break;
+        [heap[i], heap[small]] = [heap[small]!, heap[i]!];
+        i = small;
+      }
+    }
+    return top;
+  };
+  const extend = (cost: number, node: NodeId, state: State | null) => {
+    for (const edge of graph.outgoing.get(node) ?? []) {
+      if (edge.segmentId === (state?.edge ?? arrivedBy)?.segmentId) continue;
+      const meters = (state?.meters ?? 0) + edge.lengthMeters;
+      if (meters > maxMeters) continue;
+      const weight = taken.has(edge.segmentId) ? REPEAT_COST : isConquestEdge(edge) ? NEW_STREET_COST : 1;
+      const next = cost + edge.lengthMeters * weight;
+      if (next >= (best.get(edge) ?? Infinity)) continue;
+      best.set(edge, next);
+      push(next, { edge, meters, via: state });
+    }
+  };
+  extend(0, from, null);
+  while (heap.length > 0) {
+    const [cost, state] = pop();
+    if (cost > (best.get(state.edge) ?? Infinity)) continue;
+    if (state.edge.to === target) {
+      const path: DirectedEdge[] = [];
+      for (let step: State | null = state; step; step = step.via) path.unshift(step.edge);
+      return path;
+    }
+    extend(cost, state.edge.to, state);
+  }
+  return null;
+}
+
+/**
+ * Nearest junction to the athlete that the rest of the city can be reached from. A stray piece of street
+ * (a courtyard, a path cut off by the join tolerance) may be nearer, and no loop leaves it.
+ */
+function nearestConnectedNode(graph: StreetGraph, point: Position): NodeId | undefined {
+  const ranked = graph.nodes
+    .map((position, node) => ({ node, meters: distanceMeters(point, position) }))
+    .filter((entry) => entry.meters <= MAX_ANCHOR_SNAP_METERS)
+    .sort((a, b) => a.meters - b.meters);
+  const stranded = new Set<NodeId>();
+  for (const { node } of ranked) {
+    if (stranded.has(node)) continue;
+    const reachable = walkCosts(graph, node, (edge) => edge.lengthMeters).cost;
+    if (reachable.size * 2 >= graph.nodes.length) return node;
+    for (const other of reachable.keys()) stranded.add(other);
+  }
+  return undefined;
+}
+
+/** Street distance is about this much longer than the straight line between the same points. */
+const STREET_DETOUR_FACTOR = 1.35;
+/** Loops kept for "another route": the best ones, each a different shape. */
+const ROUND_TRIP_CHOICES = 5;
+
+type RoundTrip = { walked: DirectedEdge[]; meters: number; newMeters: number; repeatMeters: number; score: number };
+
+/**
+ * Loops drawn before they are filled: for each direction and size, two waypoints are set on a circle around
+ * the start and joined start → A → B → start by {@link walkWithoutTurningBack}. Deciding the shape first is
+ * what keeps a loop from doubling back; the cost of a metre is what steers it onto unfinished streets.
+ */
+function roundTrips(graph: StreetGraph, home: NodeId, budgetMeters: number): RoundTrip[] {
+  const through = [...throughNodes(graph)];
+  const origin = graph.nodes[home]!;
+  const metersPerLng = 111_320 * Math.cos(toRadians(origin[1]!));
+  const nearestThrough = (point: Position, reach: number): NodeId | null => {
+    let best: NodeId | null = null;
+    let bestMeters = reach;
+    for (const node of through) {
+      const meters = distanceMeters(point, graph.nodes[node]!);
+      if (meters < bestMeters) {
+        best = node;
+        bestMeters = meters;
+      }
+    }
+    return best;
+  };
+
+  const drawn = new Map<DirectedEdge, number>();
+  const drawnMeters = (edge: DirectedEdge) => {
+    let meters = drawn.get(edge);
+    if (meters == null) {
+      meters = 0;
+      for (let i = 1; i < edge.coordinates.length; i++)
+        meters += distanceMeters(edge.coordinates[i - 1]!, edge.coordinates[i]!);
+      drawn.set(edge, meters);
+    }
+    return meters;
+  };
+  const trips = new Map<string, RoundTrip>();
+  for (const spread of [30, 50, 75]) {
+    // Triangle start → A → B → start: two sides of `radius` and the chord between the waypoints.
+    const straightLine = 2 + 2 * Math.sin(toRadians(spread));
+    for (const scale of [0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.35]) {
+      const radius = (budgetMeters / STREET_DETOUR_FACTOR / straightLine) * scale;
+      for (let bearing = 0; bearing < 360; bearing += 30) {
+        const waypoint = (offset: number) => {
+          const angle = toRadians(bearing + offset);
+          const point = [
+            origin[0]! + (radius * Math.sin(angle)) / metersPerLng,
+            origin[1]! + (radius * Math.cos(angle)) / 111_320,
+          ];
+          // Past the edge of the city there is no junction near the circle: that direction has no loop.
+          return nearestThrough(point, radius * 0.5);
+        };
+        const first = waypoint(-spread);
+        const second = waypoint(spread);
+        if (first == null || second == null || first === second || first === home || second === home) continue;
+
+        const walked: DirectedEdge[] = [];
+        const taken = new Set<number>();
+        let complete = true;
+        for (const [from, to] of [
+          [home, first],
+          [first, second],
+          [second, home],
+        ] as const) {
+          const leg = walkWithoutTurningBack(graph, from, walked[walked.length - 1] ?? null, to, taken, budgetMeters);
+          if (leg == null) {
+            complete = false;
+            break;
+          }
+          for (const edge of leg) {
+            walked.push(edge);
+            taken.add(edge.segmentId);
+          }
+        }
+        if (!complete || walked.length === 0) continue;
+
+        const seen = new Set<number>();
+        // Measured on the line the runner will follow: street lengths miss the gaps where streets are joined.
+        let meters = 0;
+        let newMeters = 0;
+        let repeatMeters = 0;
+        let tip: Position | undefined;
+        for (const edge of walked) {
+          if (tip) meters += distanceMeters(tip, edge.coordinates[0]!);
+          meters += drawnMeters(edge);
+          tip = edge.coordinates[edge.coordinates.length - 1];
+          if (seen.has(edge.segmentId)) repeatMeters += edge.lengthMeters;
+          else if (isConquestEdge(edge)) newMeters += edge.lengthMeters;
+          seen.add(edge.segmentId);
+        }
+        // A runner forgives a loop a little short or long far more easily than a street run twice.
+        const score = newMeters - 4 * repeatMeters - 1.5 * Math.abs(meters - budgetMeters);
+        const shape = [...seen].sort((a, b) => a - b).join(",");
+        if (score > (trips.get(shape)?.score ?? -Infinity))
+          trips.set(shape, { walked, meters, newMeters, repeatMeters, score });
+      }
+    }
+  }
+  return [...trips.values()].sort((a, b) => b.score - a.score);
+}
+
+/**
+ * A loop from the athlete's position (or from the densest unfinished pocket) sized to the budget, or null
+ * when the streets around offer no loop of that size: a single street, a village of dead ends.
+ */
+function planRoundTrip(segments: readonly PlanSegment[], options: RunPlanRouteOptions): RunPlanRoute | null {
+  const budgetMeters = Math.max(0, options.budgetMeters);
+  const unfinished = segments.filter(
+    (segment) => !segment.covered && isCoverageSegment(segment) && segment.coordinates.length >= 2,
+  );
+  if (unfinished.length === 0 || budgetMeters <= 0) return null;
+  const graph = buildStreetGraph(segments, options.joinToleranceMeters ?? DEFAULT_JOIN_TOLERANCE_METERS);
+  const anchor = options.start;
+  let home: NodeId | undefined;
+  if (anchor) {
+    home = nearestConnectedNode(graph, anchor);
+  } else {
+    const seed = pickSeed(unfinished, indexUncoveredDensity(unfinished), options.salt ?? 0, graph);
+    home = graph.segmentNodes.get(seed.id)?.start;
+  }
+  if (home == null) return null;
+
+  // Half the distance asked, or nothing new on it, is not the run that was asked for: let the street walk try.
+  const trips = roundTrips(graph, home, budgetMeters).filter(
+    (trip) => trip.newMeters > 0 && trip.meters >= budgetMeters * 0.7 && trip.meters <= budgetMeters * 1.1,
+  );
+  if (trips.length === 0) return null;
+  // The first request gets the best loop; "another route" walks down the list.
+  const choices = Math.min(ROUND_TRIP_CHOICES, trips.length);
+  const { walked, meters, newMeters } = trips[Math.max(0, (options.salt ?? 0) - 1) % choices]!;
+
+  const coordinates: Position[] = [];
+  const keptIndex: number[] = [];
+  const legs: RunPlanLeg[] = [];
+  const credited = new Set<number>();
+  walked.forEach((edge, index) => {
+    const piece = index === 0 ? edge.coordinates : edge.coordinates.slice(1);
+    const tip = coordinates[coordinates.length - 1];
+    for (const point of piece) {
+      const last = coordinates[coordinates.length - 1];
+      if (!last || last[0] !== point[0] || last[1] !== point[1]) coordinates.push(point);
+      keptIndex.push(coordinates.length - 1);
+    }
+    const kind = isConquestEdge(edge) && credited.has(edge.segmentId) ? "bridge" : legKindForEdge(edge);
+    credited.add(edge.segmentId);
+    const previous = legs[legs.length - 1];
+    if (previous?.kind === kind) previous.coordinates.push(...piece);
+    else legs.push({ coordinates: tip ? [tip, ...piece] : [...piece], kind });
+  });
+  if (coordinates.length < 2) return null;
+
+  const maneuvers = maneuversAlong(graph, walked, coordinates, keptIndex);
+  let jumpCount = 0;
+  let jumpMeters = 0;
+  if (anchor) {
+    const networkEntry = coordinates[0]!;
+    const approachMeters = distanceMeters(anchor, networkEntry);
+    if (approachMeters >= ANCHOR_JUMP_MIN_METERS) {
+      coordinates.unshift(anchor);
+      for (const maneuver of maneuvers) maneuver.index += 1;
+      legs.unshift({ coordinates: [anchor, networkEntry], kind: "jump" });
+      jumpCount = 1;
+      jumpMeters = approachMeters + closeOnAnchor(coordinates, legs, maneuvers, anchor);
+    }
+  }
+  return {
+    coordinates,
+    uncoveredMeters: newMeters,
+    pathMeters: meters + jumpMeters,
+    start: coordinates[0]!,
+    jumpCount,
+    jumpMeters,
+    legs,
+    // Finishing a city means running its dead ends too: that stays the street walk's job.
+    coversAll: false,
+    completeAtMeters: null,
+    maneuvers,
+  };
+}
+
 function emptyRoute(): RunPlanRoute {
   return {
     coordinates: [],
@@ -720,9 +1061,12 @@ function emptyRoute(): RunPlanRoute {
  * Long continuous OSM LineStrings are walked in full (any length is fine when on-network).
  */
 export function buildRunPlanRoute(segments: readonly PlanSegment[], options: RunPlanRouteOptions): RunPlanRoute {
-  const first = walkPlan(segments, options, new Set());
   // The finishing walk has to take every street, dead ends included.
-  if (!options.loop || options.homewardSteer === false) return first.route;
+  if (!options.loop || options.homewardSteer === false) return walkPlan(segments, options, new Set()).route;
+  const roundTrip = planRoundTrip(segments, options);
+  if (roundTrip) return roundTrip;
+  // No loop of that size around here: walk the streets out and back.
+  const first = walkPlan(segments, options, new Set());
   // Re-plan without the detours that cost more than they conquer; the freed budget goes to other streets.
   // A re-plan is kept only when it is worth more: where everything left is a dead end, the first walk wins.
   const skipped = new Set<number>();
@@ -1059,24 +1403,7 @@ function walkPlan(
     return { route: emptyRoute(), walked: [] };
   }
 
-  const maneuvers: RunPlanManeuver[] = [];
-  let rawIndex = (walked[0]?.coordinates.length ?? 1) - 1;
-  for (let i = 0; i + 1 < walked.length; i++) {
-    const current = walked[i]!;
-    const next = walked[i + 1]!;
-    const index = keptIndex[rawIndex]!;
-    rawIndex += next.coordinates.length - 1;
-    const turnsBack = next.segmentId === current.segmentId;
-    const branches = new Set((graph.outgoing.get(current.to) ?? []).map((edge) => edge.segmentId)).size;
-    // Two streets meeting is a bend, not a choice: nothing to say.
-    if (!turnsBack && branches < 3) continue;
-    const heading =
-      bearingDegrees(coordinates[index]!, sightVertex(coordinates, index, 1)) -
-      bearingDegrees(sightVertex(coordinates, index, -1), coordinates[index]!);
-    const type = turnsBack ? "u-turn" : turnType(heading);
-    if (type) maneuvers.push({ type, name: next.name, index });
-  }
-  maneuvers.push({ type: "arrive", name: null, index: coordinates.length - 1 });
+  const maneuvers = maneuversAlong(graph, walked, coordinates, keptIndex);
 
   // Anchored plans keep the athlete's GPS as the true start. Network walking still begins at
   // the nearest street node; the GPS→snap segment is a single approach jump (not mid-route hops).
@@ -1093,6 +1420,7 @@ function walkPlan(
       jumpCount = 1;
       jumpMeters = approachMeters;
       start = anchor;
+      if (loop) jumpMeters += closeOnAnchor(coordinates, legs, maneuvers, anchor);
     }
   }
 
