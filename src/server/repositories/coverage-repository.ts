@@ -79,10 +79,22 @@ export function createCoverageRepository(
   database: Database,
   rules: CoverageRules = COVERAGE_RULES,
 ): CoverageRepository {
+  /**
+   * Every segment a run credits: the ones it matched, and their twin carriageways with the same share
+   * (ADR 0023). Every read of a runner's coverage goes through this, so percentage, map and plans agree.
+   */
+  const creditedSegments = sql`(
+    SELECT activity_id, segment_id, covered_share FROM activity_street_segments
+    UNION ALL
+    SELECT matched.activity_id, twin.twin_id, matched.covered_share
+    FROM activity_street_segments AS matched
+    JOIN street_segment_twins AS twin ON twin.segment_id = matched.segment_id
+  )`;
+
   /** Hard-covered segment ids (touched share ≥ minCoveredShare) — map layers and strict %. */
   const segmentsHardCoveredBy = (userId: string) => sql`
     SELECT covered.segment_id
-    FROM activity_street_segments AS covered
+    FROM ${creditedSegments} AS covered
     JOIN activities ON activities.strava_activity_id = covered.activity_id
     WHERE activities.user_id = ${userId}
       AND covered.covered_share >= ${rules.minCoveredShare}
@@ -91,7 +103,7 @@ export function createCoverageRepository(
   /** Best touched share per segment for this runner (soft % / partial credit). */
   const segmentSharesForUser = (userId: string) => sql`
     SELECT covered.segment_id, max(covered.covered_share)::float8 AS covered_share
-    FROM activity_street_segments AS covered
+    FROM ${creditedSegments} AS covered
     JOIN activities ON activities.strava_activity_id = covered.activity_id
     WHERE activities.user_id = ${userId}
     GROUP BY covered.segment_id
@@ -466,7 +478,7 @@ export function createCoverageRepository(
         WITH shares AS (
           SELECT activities.user_id, covered.segment_id, max(covered.covered_share)::float8 AS covered_share
           FROM street_segments AS segment
-          JOIN activity_street_segments AS covered ON covered.segment_id = segment.id
+          JOIN ${creditedSegments} AS covered ON covered.segment_id = segment.id
           JOIN activities ON activities.strava_activity_id = covered.activity_id
           JOIN user_cities ON user_cities.user_id = activities.user_id AND user_cities.osm_relation_id = ${areaId}
           WHERE segment.area_id = ${areaId} AND segment.counts_for_coverage

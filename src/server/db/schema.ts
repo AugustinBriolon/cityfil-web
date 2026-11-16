@@ -131,6 +131,23 @@ export const streetSegments = pgTable(
   (table) => [index().using("gist", table.path), index().on(table.areaId)],
 );
 
+/**
+ * The other carriageways of a street segment (ADR 0023): a run that matches one credits both. Derived from
+ * `street_segments`, both directions stored.
+ */
+export const streetSegmentTwins = pgTable(
+  "street_segment_twins",
+  {
+    segmentId: bigint({ mode: "number" })
+      .notNull()
+      .references(() => streetSegments.id, { onDelete: "cascade" }),
+    twinId: bigint({ mode: "number" })
+      .notNull()
+      .references(() => streetSegments.id, { onDelete: "cascade" }),
+  },
+  (table) => [primaryKey({ columns: [table.segmentId, table.twinId] }), index().on(table.twinId)],
+);
+
 export const activityStreetSegments = pgTable(
   "activity_street_segments",
   {

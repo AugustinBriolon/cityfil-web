@@ -1,5 +1,7 @@
 import type { Feature, FeatureCollection, LineString, Position } from "geojson";
 
+import { TWIN_RULES } from "./twin-rules";
+
 /** Street piece used to assemble a continuous run plan. */
 export type PlanSegment = {
   id: number;
@@ -330,10 +332,6 @@ function buildStreetGraph(segments: readonly PlanSegment[], joinToleranceMeters:
   return { nodes, outgoing, segmentNodes };
 }
 
-/** Carriageways of one boulevard are drawn this far apart at most, and run this parallel. */
-const TWIN_MAX_APART_METERS = 25;
-const TWIN_MAX_ANGLE_DEGREES = 20;
-
 /**
  * For each segment, the segments of the same street running alongside it. OSM draws each carriageway of a
  * boulevard as its own line; to a runner they are one street, and running one of them has run it.
@@ -366,10 +364,10 @@ function twinSegments(segments: readonly PlanSegment[]): Map<number, PlanSegment
         for (const other of cells.get(`${cx + dx},${cy + dy}`) ?? []) {
           if (other.segment.id === line.segment.id || other.segment.name !== line.segment.name) continue;
           const angle = Math.abs(((other.bearing - line.bearing + 270) % 180) - 90);
-          if (angle > TWIN_MAX_ANGLE_DEGREES) continue;
+          if (angle > TWIN_RULES.maxAngleDegrees) continue;
           const apart = distanceMeters(line.middle, other.middle);
           const offset = toRadians(bearingDegrees(line.middle, other.middle) - line.bearing);
-          if (Math.abs(apart * Math.sin(offset)) > TWIN_MAX_APART_METERS) continue;
+          if (Math.abs(apart * Math.sin(offset)) > TWIN_RULES.maxApartMeters) continue;
           // Alongside, not ahead: the next piece of the same street is no twin.
           if (Math.abs(apart * Math.cos(offset)) > Math.max(line.half, other.half)) continue;
           twins.set(line.segment.id, [...(twins.get(line.segment.id) ?? []), other.segment]);

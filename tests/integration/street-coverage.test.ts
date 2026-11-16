@@ -43,8 +43,10 @@ const squareCity: AreaImport = {
       osmWayId: 1,
       name: "Main Street",
       highway: "residential",
+      // Crossing streets share a node in OSM: that shared vertex is what makes the junction (ADR 0021).
       coordinates: [
         [1.995, MAIN_STREET_LATITUDE],
+        [CROSS_STREET_LONGITUDE, MAIN_STREET_LATITUDE],
         [2.015, MAIN_STREET_LATITUDE],
       ],
     },
@@ -54,6 +56,7 @@ const squareCity: AreaImport = {
       highway: "tertiary",
       coordinates: [
         [CROSS_STREET_LONGITUDE, 47.998],
+        [CROSS_STREET_LONGITUDE, MAIN_STREET_LATITUDE],
         [CROSS_STREET_LONGITUDE, 48.012],
       ],
     },

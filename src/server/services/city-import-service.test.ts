@@ -26,6 +26,7 @@ describe("createCityImportService", () => {
       hasStreetsImported: vi.fn(async () => false),
       findAreasContainingPoints: vi.fn(async () => []),
       filterPointsOutsideAreas: vi.fn(async (points) => points),
+      rebuildTwins: vi.fn(async () => 0),
       replaceArea: vi.fn(async () => {
         calls.push("replaceArea");
         return { segmentCount: 3000, streetLengthMeters: 110_000 };

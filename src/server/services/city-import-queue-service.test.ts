@@ -27,6 +27,7 @@ describe("createCityImportQueueService", () => {
       hasStreetsImported: vi.fn(async () => true),
       findAreasContainingPoints: vi.fn(async () => []),
       filterPointsOutsideAreas: vi.fn(async (points) => points),
+      rebuildTwins: vi.fn(async () => 0),
       replaceArea: vi.fn(),
     };
     const overpass: OverpassClient = { fetchCity: vi.fn(), fetchAdminCitiesInRegion: vi.fn() };
@@ -65,6 +66,7 @@ describe("createCityImportQueueService", () => {
       hasStreetsImported: vi.fn(async () => false),
       findAreasContainingPoints: vi.fn(async () => []),
       filterPointsOutsideAreas: vi.fn(async (points) => points),
+      rebuildTwins: vi.fn(async () => 0),
       replaceArea: vi.fn(async () => ({ segmentCount: 10, streetLengthMeters: 1000 })),
     };
     const overpass: OverpassClient = {

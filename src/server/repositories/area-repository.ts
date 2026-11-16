@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { Position } from "geojson";
 
+import { TWIN_RULES } from "@/lib/coverage/twin-rules";
 import { COVERAGE_RULES, type CoverageRules } from "@/server/coverage/coverage-rules";
 import type { Database } from "@/server/db/client";
 
@@ -30,6 +31,8 @@ export type LatLon = { lat: number; lon: number };
 export type AreaRepository = {
   /** Creates or fully replaces an area and its street segments. */
   replaceArea: (area: AreaImport) => Promise<AreaImportResult>;
+  /** Recomputes the twin carriageways of a city already imported; returns the rows stored (both directions). */
+  rebuildTwins: (osmRelationId: number) => Promise<number>;
   /** Returns all imported areas. */
   listAll: () => Promise<Array<{ osmRelationId: number; name: string; adminLevel: number }>>;
   /** Returns whether street segments for this OSM relation are already imported (ready for %). */
@@ -43,6 +46,38 @@ export type AreaRepository = {
 };
 
 const toLineGeoJson = (coordinates: Position[]) => ({ type: "LineString", coordinates });
+
+/**
+ * Stores the twin carriageways of a city's streets: same name, parallel, alongside each other ({@link TWIN_RULES}).
+ * The same test as the planner's `twinSegments`, on the same quantities (midpoints, end-to-end bearing).
+ */
+function insertTwinsSql(osmRelationId: number) {
+  return sql`
+    WITH line AS (
+      SELECT id, name,
+             ST_LineInterpolatePoint(path, 0.5) AS middle,
+             degrees(ST_Azimuth(ST_StartPoint(path)::geography, ST_EndPoint(path)::geography)) AS bearing,
+             ST_Distance(ST_StartPoint(path)::geography, ST_EndPoint(path)::geography) / 2 AS half
+      FROM street_segments
+      WHERE area_id = ${osmRelationId} AND counts_for_coverage AND name IS NOT NULL
+        AND NOT ST_Equals(ST_StartPoint(path), ST_EndPoint(path))
+    )
+    INSERT INTO street_segment_twins (segment_id, twin_id)
+    SELECT line.id, other.id
+    FROM line
+    JOIN line AS other ON other.name = line.name AND other.id <> line.id AND ST_DWithin(line.middle, other.middle, 0.001)
+    CROSS JOIN LATERAL (
+      SELECT ST_Distance(line.middle::geography, other.middle::geography) AS apart,
+             radians(degrees(ST_Azimuth(line.middle::geography, other.middle::geography)) - line.bearing) AS heading
+    ) AS gap
+    WHERE gap.apart > 0
+      AND abs(mod((other.bearing - line.bearing + 270)::numeric, 180) - 90) <= ${TWIN_RULES.maxAngleDegrees}
+      AND abs(gap.apart * sin(gap.heading)) <= ${TWIN_RULES.maxApartMeters}
+      -- Alongside, not ahead: the next piece of the same street is no twin.
+      AND abs(gap.apart * cos(gap.heading)) <= greatest(line.half, other.half)
+    ON CONFLICT DO NOTHING
+  `;
+}
 
 export function createAreaRepository(
   database: Database,
@@ -108,6 +143,17 @@ export function createAreaRepository(
 
       return rows.map((row) => ({ lat: row.lat, lon: row.lon }));
     },
+    async rebuildTwins(osmRelationId) {
+      return database.transaction(async (transaction) => {
+        await transaction.execute(sql`
+          DELETE FROM street_segment_twins
+          WHERE segment_id IN (SELECT id FROM street_segments WHERE area_id = ${osmRelationId})
+        `);
+        const rows = await transaction.execute(sql`${insertTwinsSql(osmRelationId)} RETURNING segment_id`);
+        return rows.length;
+      });
+    },
+
     async replaceArea(area) {
       const boundaryLines = JSON.stringify(area.boundaryLines.map(toLineGeoJson));
       const streets = JSON.stringify(
@@ -158,6 +204,8 @@ export function createAreaRepository(
           SELECT ${area.osmRelationId}, osm_way_id, name, highway, path, ST_Length(path::geography), counts_for_coverage
           FROM pieces
         `);
+
+        await transaction.execute(insertTwinsSql(area.osmRelationId));
 
         const [totals] = await transaction.execute<{ segment_count: number; street_length_meters: number }>(sql`
           UPDATE areas

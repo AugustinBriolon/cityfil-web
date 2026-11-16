@@ -43,7 +43,10 @@ runs; this package is the web globe plus the mobile API.
   graph has a junction wherever two streets share a vertex, never where they merely come close
   ([ADR 0021](docs/adr/0021-junctions-where-streets-really-meet.md)). Streets of the neighbouring cities along the
   boundary are loaded with every plan, so a street cut by the boundary is not a dead end
-  ([ADR 0022](docs/adr/0022-neighbouring-streets-along-the-whole-boundary.md)).
+  ([ADR 0022](docs/adr/0022-neighbouring-streets-along-the-whole-boundary.md)). A run credits the twin carriageway of every
+  segment it matches, in the percentage as in plans
+  ([ADR 0023](docs/adr/0023-twin-carriageways-credited-in-coverage.md)); rebuild twins for cities imported earlier
+  with `pnpm exec tsx --env-file=.env.local scripts/rebuild-street-twins.ts`.
 - City rivalries: `POST /api/mobile/cities/invite` mints a 14-day link, `POST /api/mobile/cities/invite/accept`
   pairs two runners on one city, `GET /api/mobile/cities/:areaId/board` returns rivals plus Founder / Conqueror /
   Keeper titles. `PATCH /api/mobile/me` sets `profileVisibility` (`private` by default). Public names appear on the

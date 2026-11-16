@@ -93,6 +93,7 @@ describe("createCityDetectionService", () => {
       hasStreetsImported: vi.fn(async () => false),
       findAreasContainingPoints: vi.fn(async () => []),
       filterPointsOutsideAreas: vi.fn(async (points) => points),
+      rebuildTwins: vi.fn(async () => 0),
       replaceArea: vi.fn(),
     };
     catalog = {
