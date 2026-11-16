@@ -460,9 +460,9 @@ describe("buildRunPlanRoute", () => {
     expect(route.pathMeters).toBeLessThanOrEqual(420);
   });
 
-  it("stays fast when many sub-tolerance stubs touch one large unfinished pocket", () => {
-    // Paris shape: stubs shorter than the join tolerance collapse to a single node, so they have no
-    // graph edge. Each one used to re-flood the whole pocket, blowing seed ranking up quadratically.
+  it("stays fast when many short stubs touch one large unfinished pocket", () => {
+    // Paris shape: a 3 m stub at every junction. Each one used to re-flood the whole pocket, blowing seed
+    // ranking up quadratically. They are real dead ends now (ADR 0021), so the walk has twice the streets.
     const pocket = chain(1, 3_000, false);
     const stubs = pocket.map((piece, index) => {
       const [lng, lat] = piece.coordinates[0]!;
@@ -481,8 +481,8 @@ describe("buildRunPlanRoute", () => {
     const elapsedMs = performance.now() - startedAt;
 
     expect(route.pathMeters).toBeGreaterThan(15_000);
-    // ~30 ms now; the quadratic version took ~1.2 s on this fixture.
-    expect(elapsedMs).toBeLessThan(400);
+    // ~0.5 s on 6,000 streets; a quadratic walk takes several seconds.
+    expect(elapsedMs).toBeLessThan(1_500);
   });
 });
 
@@ -688,6 +688,50 @@ describe("collection loops", () => {
     expect(route.uncoveredMeters).toBeGreaterThanOrEqual(100);
     expect(route.pathMeters).toBeLessThanOrEqual(900 * 1.1);
     expect(route.coordinates.at(-1)).toEqual(route.coordinates[0]);
+  });
+});
+
+describe("junctions", () => {
+  const step = 0.00135;
+
+  it("turns into a street met halfway along a piece", () => {
+    // Imported streets are cut every 50 m, not at crossings: the avenue is one piece, the side street ends on its middle.
+    const avenue = seg(
+      1,
+      [
+        [2, 48],
+        [2 + step, 48],
+        [2 + 2 * step, 48],
+      ],
+      true,
+      200,
+    );
+    const sideStreet = seg(
+      2,
+      [
+        [2 + step, 48],
+        [2 + step, 48.0009],
+      ],
+      false,
+      100,
+    );
+    const streets = [avenue, sideStreet];
+    const route = buildRunPlanRoute(streets, { budgetMeters: 1_000, start: [2, 48], loop: true });
+    expect(route.uncoveredMeters).toBe(100);
+    expect(route.coordinates).toContainEqual([2 + step, 48.0009]);
+    expect(pathFollowsSegments(route.coordinates as [number, number][], streets, 1)).toBe(true);
+    expect(route.maneuvers.map((maneuver) => maneuver.type)).toEqual(["left", "u-turn", "right", "arrive"]);
+  });
+
+  it("does not jump between streets that only come close", () => {
+    // 15 m apart and never touching: a railway between them, say. No junction, so no way across.
+    const near = chain(1, 3, true);
+    const far = chain(11, 3, false).map((piece) => ({
+      ...piece,
+      coordinates: piece.coordinates.map(([lng, lat]) => [lng!, lat! + 0.000135]),
+    }));
+    const { route } = planOuting([...near, ...far], { budgetMeters: 1_000, start: [2, 48], loop: true });
+    expect(pathFollowsSegments(route.coordinates as [number, number][], [...near, ...far], 1)).toBe(true);
   });
 });
 

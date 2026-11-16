@@ -90,7 +90,11 @@ export const FINISH_BRIDGE_METERS = 4_500;
 export const MAX_FINISH_BUDGET_METERS = 30_000;
 
 /** Endpoint clustering — wide enough to join real OSM junctions without inventing block shortcuts. */
-const DEFAULT_JOIN_TOLERANCE_METERS = 22;
+/**
+ * Endpoints this close are one junction. Streets are cut where they really meet ({@link cutAtJunctions}), so
+ * this only absorbs rounding and the seam between two cities; a wider net merges whole squares into one point.
+ */
+const DEFAULT_JOIN_TOLERANCE_METERS = 1;
 /** Grid used to start in the densest remaining unfinished neighbourhood. */
 const DENSITY_CELL_METERS = 280;
 /** Longest street walk allowed to reach the first unfinished street from an anchored start. */
@@ -374,6 +378,44 @@ function twinSegments(segments: readonly PlanSegment[]): Map<number, PlanSegment
     }
   }
   return twins;
+}
+
+/**
+ * Cuts every street at the points it shares with another one. Imported streets are cut every 50 m, not at
+ * crossings: a street met halfway along a piece has no endpoint there, and without this cut no junction.
+ * The pieces of a street get ids of their own, past the highest one.
+ */
+function cutAtJunctions(segments: readonly PlanSegment[]): PlanSegment[] {
+  const keyOf = (point: Position) => `${point[0]!.toFixed(6)},${point[1]!.toFixed(6)}`;
+  const streetsAt = new Map<string, number>();
+  for (const segment of segments) {
+    for (const key of new Set(segment.coordinates.map(keyOf))) streetsAt.set(key, (streetsAt.get(key) ?? 0) + 1);
+  }
+  let nextId = segments.reduce((highest, segment) => Math.max(highest, segment.id), 0) + 1;
+  return segments.flatMap((segment) => {
+    const cuts = segment.coordinates
+      .map((point, index) => ({ index, shared: (streetsAt.get(keyOf(point)) ?? 0) > 1 }))
+      .filter(({ index, shared }) => shared && index > 0 && index < segment.coordinates.length - 1)
+      .map(({ index }) => index);
+    if (cuts.length === 0) return [segment];
+    const drawn = (points: Position[]) =>
+      points.slice(1).reduce((meters, point, index) => meters + distanceMeters(points[index]!, point), 0);
+    const whole = drawn(segment.coordinates) || 1;
+    return [0, ...cuts].map((from, piece) => {
+      const coordinates = segment.coordinates.slice(from, (cuts[piece] ?? segment.coordinates.length - 1) + 1);
+      return {
+        ...segment,
+        id: nextId++,
+        coordinates,
+        lengthMeters: (segment.lengthMeters * drawn(coordinates)) / whole,
+      };
+    });
+  });
+}
+
+/** The streets as the planner needs them: twins credited, then cut where they meet. */
+function streetsAsRun(streets: readonly PlanSegment[]): PlanSegment[] {
+  return cutAtJunctions(withTwinsCredited(streets));
 }
 
 /** The streets as the runner sees them: a carriageway whose twin is run needs no run of its own. */
@@ -1333,7 +1375,7 @@ function emptyRoute(): RunPlanRoute {
  * Long continuous OSM LineStrings are walked in full (any length is fine when on-network).
  */
 export function buildRunPlanRoute(streets: readonly PlanSegment[], options: RunPlanRouteOptions): RunPlanRoute {
-  const segments = withTwinsCredited(streets);
+  const segments = streetsAsRun(streets);
   // The finishing walk has to take every street, dead ends included.
   if (!options.loop || options.homewardSteer === false) return walkPlan(segments, options, new Set()).route;
   const roundTrip = planLoop(segments, options);
@@ -1751,7 +1793,7 @@ function unfinishedMeters(segments: readonly PlanSegment[]): number {
 }
 
 export function planOuting(streets: readonly PlanSegment[], options: OutingOptions): Outing {
-  const segments = withTwinsCredited(streets);
+  const segments = streetsAsRun(streets);
   const outing = planFromStartOrCity(segments, options);
   // Skip the second walk when this budget cannot finish anyway (the usual case on a big city).
   if (outing.route.coversAll || options.budgetMeters < unfinishedMeters(segments)) return outing;
@@ -1765,7 +1807,7 @@ export function planOuting(streets: readonly PlanSegment[], options: OutingOptio
  * Uses the same walk as {@link planOuting}'s finishing fallback, so any budget at or above it finishes.
  */
 export function estimateFinishMeters(streets: readonly PlanSegment[], start?: Position, loop = false): number | null {
-  const segments = withTwinsCredited(streets);
+  const segments = streetsAsRun(streets);
   const unfinished = unfinishedMeters(segments);
   if (unfinished === 0) return 0;
   if (unfinished > MAX_FINISH_BUDGET_METERS) return null;
