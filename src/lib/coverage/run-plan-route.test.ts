@@ -538,10 +538,14 @@ describe("loops", () => {
         100,
       ),
     );
-    const route = buildRunPlanRoute([...block(), ...deadEnd], { budgetMeters: 1_500, start: A, loop: true });
+    const route = buildRunPlanRoute([...block(), ...deadEnd], { budgetMeters: 500, start: A, loop: true });
     expect(route.uncoveredMeters).toBe(400);
     expect(route.coordinates.every(([lng]) => lng! <= C[0] + 1e-9)).toBe(true);
     expect(route.coordinates.at(-1)).toEqual(A);
+    // With the distance to finish the city, the dead end is the price of finishing it.
+    const finishing = buildRunPlanRoute([...block(), ...deadEnd], { budgetMeters: 1_500, start: A, loop: true });
+    expect(finishing.coversAll).toBe(true);
+    expect(finishing.maneuvers.filter((maneuver) => maneuver.type === "u-turn")).toHaveLength(1);
   });
 
   it("still runs the dead end when it is all that is left", () => {
@@ -606,6 +610,41 @@ describe("round trips", () => {
   it("offers a different loop when asked for another route", () => {
     expect(plan(2).coordinates).not.toEqual(plan(1).coordinates);
     expect(plan(1).coordinates).toEqual(plan(0).coordinates);
+  });
+});
+
+describe("collection loops", () => {
+  // A city nearly finished: three scraps left, far apart, none of them a dead end.
+  const scraps = new Set([3, 40, 77]);
+  const streets = grid().map((street) => ({ ...street, covered: !scraps.has(street.id) }));
+  const athlete: [number, number] = [2 + 3 * 0.00135, 48 + 3 * 0.0009];
+  const streetsRun = (coordinates: number[][]) =>
+    coordinates.slice(1).map((point, index) => [coordinates[index]!.join(","), point.join(",")].sort().join("|"));
+
+  it("strings the scraps into one loop that finishes the city without running a street twice", () => {
+    const route = buildRunPlanRoute(streets, { budgetMeters: 5_000, start: athlete, loop: true });
+    expect(route.coversAll).toBe(true);
+    expect(route.uncoveredMeters).toBe(300);
+    expect(route.coordinates.at(-1)).toEqual(route.coordinates[0]);
+    expect(route.maneuvers.some((maneuver) => maneuver.type === "u-turn")).toBe(false);
+    const run = streetsRun(route.coordinates);
+    expect(new Set(run).size).toBe(run.length);
+    expect(pathFollowsSegments(route.coordinates as [number, number][], streets)).toBe(true);
+  });
+
+  it("is the loop behind the finishing length, so that length finishes", () => {
+    const finish = estimateFinishMeters(streets, athlete, true)!;
+    const { route } = planOuting(streets, { budgetMeters: Math.ceil(finish), start: athlete, loop: true });
+    expect(route.coversAll).toBe(true);
+    expect(route.pathMeters).toBeCloseTo(finish, 0);
+  });
+
+  it("drops the scraps that cost the most detour when the distance asked is short", () => {
+    const route = buildRunPlanRoute(streets, { budgetMeters: 900, start: athlete, loop: true });
+    expect(route.coversAll).toBe(false);
+    expect(route.uncoveredMeters).toBeGreaterThanOrEqual(100);
+    expect(route.pathMeters).toBeLessThanOrEqual(900 * 1.1);
+    expect(route.coordinates.at(-1)).toEqual(route.coordinates[0]);
   });
 });
 

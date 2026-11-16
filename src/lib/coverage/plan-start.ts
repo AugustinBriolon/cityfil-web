@@ -6,3 +6,9 @@ export type LngLat = { lng: number; lat: number };
 export function isPlanStartAllowed(distanceToCityMeters: number): boolean {
   return Number.isFinite(distanceToCityMeters) && distanceToCityMeters <= PLAN_START_MAX_DISTANCE_METERS;
 }
+
+/**
+ * Half-width of the box of neighbouring streets loaded around a start outside the city (about 1.5 km):
+ * wide enough to walk from anywhere {@link PLAN_START_MAX_DISTANCE_METERS} allows to the city's own streets.
+ */
+export const APPROACH_STREETS_DEGREES = 0.02;

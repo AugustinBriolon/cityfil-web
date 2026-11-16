@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 
-import type { LngLat } from "@/lib/coverage/plan-start";
+import { APPROACH_STREETS_DEGREES, type LngLat } from "@/lib/coverage/plan-start";
 import type { CityCoverage, CoveredStreets } from "@/lib/coverage/street-coverage";
 import {
   estimateFinishMeters,
@@ -108,7 +108,27 @@ export function createCoverageRepository(
   `;
 
   /** Whole city street graph, unfinished streets flagged — full graph, pocket clipping left plans short. */
-  const loadPlanSegments = async (userId: string, areaId: number): Promise<PlanSegment[]> => {
+  /**
+   * The city's streets, plus the neighbouring cities' around a start that stands outside it: those count for
+   * nothing, they are how the plan reaches the city along streets rather than as the crow flies.
+   */
+  const loadPlanSegments = async (
+    userId: string,
+    areaId: number,
+    start?: { lng: number; lat: number },
+  ): Promise<PlanSegment[]> => {
+    const startPoint = start ? sql`ST_SetSRID(ST_MakePoint(${start.lng}::float8, ${start.lat}::float8), 4326)` : null;
+    const approachStreets = startPoint
+      ? sql`
+        UNION ALL
+        SELECT segment.id::int, ST_AsGeoJSON(segment.path, 6), segment.length_meters::float8, true, false, segment.name
+        FROM street_segments AS segment
+        WHERE segment.area_id <> ${areaId}
+          AND segment.path && ST_Expand(${startPoint}, ${APPROACH_STREETS_DEGREES}::float8)
+          AND NOT EXISTS (
+            SELECT 1 FROM areas WHERE areas.osm_relation_id = ${areaId} AND ST_Covers(areas.boundary, ${startPoint})
+          )`
+      : sql``;
     const rows = await database.execute<{
       id: number;
       geometry: string;
@@ -133,6 +153,7 @@ export function createCoverageRepository(
         segment.name AS name
       FROM street_segments AS segment
       WHERE segment.area_id = ${areaId}
+      ${approachStreets}
     `);
     return rows.flatMap((row) => {
       const geometry = JSON.parse(row.geometry) as { type: string; coordinates: PlanSegment["coordinates"] };
@@ -394,7 +415,7 @@ export function createCoverageRepository(
 
     async getRunPlanStreets(userId, areaId, budgetMeters, { salt = 0, start, loop = true } = {}) {
       const budget = Math.max(500, Math.min(budgetMeters, 40_000));
-      const segments = await loadPlanSegments(userId, areaId);
+      const segments = await loadPlanSegments(userId, areaId, start);
       const { route, startsFromPosition } = planOuting(segments, {
         budgetMeters: budget,
         salt,
@@ -414,7 +435,7 @@ export function createCoverageRepository(
     },
 
     async getFinishMeters(userId, areaId, start) {
-      const segments = await loadPlanSegments(userId, areaId);
+      const segments = await loadPlanSegments(userId, areaId, start);
       // Loop length: the app plans loops by default, and a budget that closes the loop also finishes an open run.
       return estimateFinishMeters(segments, start ? [start.lng, start.lat] : undefined, true);
     },

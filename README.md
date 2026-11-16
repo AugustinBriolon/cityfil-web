@@ -34,7 +34,10 @@ runs; this package is the web globe plus the mobile API.
   coverage) consumed by `cityfil-app`. `GET /api/mobile/cities/nearby` ranks the runner's cities by distance
   from a position, and `GET /api/mobile/cities/plan` builds a walkable run route on OSM streets (plus pedestrian connectors that do not count toward %). Distance is a soft preference (~±15–20%); the planner stays on the street / connector graph only (ADR 0014 — no aerial hops). Optionally starts from the runner's
   position (`startLat`/`startLng`), only within 1 km of the city boundary. Plans are loops that end where they
-  start unless `loop=0`, and carry the turn instructions (`plan.maneuvers`) the app speaks (ADR 0017).
+  start unless `loop=0`, and carry the turn instructions (`plan.maneuvers`) the app speaks (ADR 0017). A city down to
+  scattered scraps gets a collection loop that visits them in tour order, and a start outside the city reaches it
+  along the neighbouring city's streets
+  ([ADR 0019](docs/adr/0019-collection-loops-for-nearly-finished-cities.md)).
 - City rivalries: `POST /api/mobile/cities/invite` mints a 14-day link, `POST /api/mobile/cities/invite/accept`
   pairs two runners on one city, `GET /api/mobile/cities/:areaId/board` returns rivals plus Founder / Conqueror /
   Keeper titles. `PATCH /api/mobile/me` sets `profileVisibility` (`private` by default). Public names appear on the
