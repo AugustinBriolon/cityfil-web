@@ -35,7 +35,8 @@ runs; this package is the web globe plus the mobile API.
   from a position, and `GET /api/mobile/cities/plan` builds a walkable run route on OSM streets (plus pedestrian connectors that do not count toward %). Distance is a soft preference (~±15–20%); the planner stays on the street / connector graph only (ADR 0014 — no aerial hops). Optionally starts from the runner's
   position (`startLat`/`startLng`), only within 1 km of the city boundary. Plans are loops that end where they
   start unless `loop=0`, and carry the turn instructions (`plan.maneuvers`) the app speaks (ADR 0017). A city down to
-  scattered scraps gets a collection loop that visits them in tour order, and a start outside the city reaches it
+  scattered scraps gets a collection loop that visits them in tour order (trying every order through a group of up to
+  five touching streets, so a dead-end spur is run in passing), and a start outside the city reaches it
   along the neighbouring city's streets
   ([ADR 0019](docs/adr/0019-collection-loops-for-nearly-finished-cities.md)). The two carriageways of a boulevard are
   planned as one street, and no straight line is ever drawn to a runner outside the city

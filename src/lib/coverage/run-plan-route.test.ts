@@ -690,6 +690,30 @@ describe("collection loops", () => {
     expect(route.coordinates.at(-1)).toEqual(route.coordinates[0]);
   });
 
+  it("runs a dead-end spur when it passes it instead of coming back for it", () => {
+    // What is left at a roundabout: two pieces of the ring, and between them a spur that a side street
+    // joins halfway before it stops. Nearest street first runs both ring pieces, then detours back for the spur.
+    const at = (column: number, row: number): [number, number] => [2 + column * 0.00135, 48 + row * 0.0009];
+    const is = (street: PlanSegment, from: [number, number], to: [number, number]) =>
+      street.coordinates[0]!.join() === from.join() && street.coordinates[1]!.join() === to.join();
+    const roundabout = [
+      ...grid()
+        .filter((street) => !is(street, at(3, 5), at(3, 6)))
+        .map((street) => ({
+          ...street,
+          covered: !is(street, at(2, 6), at(3, 6)) && !is(street, at(3, 6), at(4, 6)),
+        })),
+      seg(901, [at(3, 6), at(3, 7.2)], false, 120),
+      seg(902, [at(3, 7.2), at(3, 8)], false, 80),
+      seg(903, [at(3, 7.2), at(2, 7.2)], true, 100),
+      seg(904, [at(2, 7.2), at(2, 6)], true, 120),
+    ];
+    const route = buildRunPlanRoute(roundabout, { budgetMeters: 5_000, start: athlete, loop: true });
+    // 1.6 km with the spur taken in passing; 2.6 km when the loop leaves the roundabout and comes back for it.
+    expect(route.pathMeters).toBeLessThan(2_000);
+    expect(route.coversAll).toBe(true);
+  });
+
   it("takes back a dropped scrap the loop runs past, when it still fits", () => {
     // Two scraps on one street, 100 m apart: whatever the tour order makes of them, a loop that touches
     // the second one and has the distance for it does not leave it beside the line.

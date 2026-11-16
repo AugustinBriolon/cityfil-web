@@ -982,6 +982,9 @@ const HAIRPIN_PENALTY_METERS = 600;
 /** Loops kept for "another route": the best ones, each a different shape. */
 const ROUND_TRIP_CHOICES = 5;
 
+/** Pockets up to this many streets have every order tried; larger ones cost too many searches. */
+const POCKET_LOOKAHEAD_STREETS = 5;
+
 /** Marks a street as run in this loop, with its other carriageways; returns the unfinished metres those add. */
 function take(taken: Set<number>, edge: DirectedEdge): number {
   taken.add(edge.segmentId);
@@ -1203,31 +1206,70 @@ function collectionLoop(
   const everyStop = tourOrder(origin, unfinishedPockets(graph, reachable));
   const fits = (loop: WalkedLoop) => loop.meters <= budgetMeters * 1.1;
 
-  const walkTour = (stops: readonly Pocket[]) => {
-    const walked: DirectedEdge[] = [];
-    const taken = new Set<number>();
-    const walkTo = (reached: (edge: DirectedEdge) => boolean): boolean => {
-      const from = walked[walked.length - 1]?.to ?? home;
-      const leg = walkWithoutTurningBack(
-        graph,
-        from,
-        walked[walked.length - 1] ?? null,
-        reached,
-        taken,
-        Infinity,
-        true,
-      );
-      for (const edge of leg ?? []) {
-        walked.push(edge);
-        take(taken, edge);
-      }
-      return leg != null;
-    };
-    for (const pocket of reversed ? [...stops].reverse() : stops) {
-      while (walkTo((edge) => pocket.segments.has(edge.segmentId) && !taken.has(edge.segmentId)));
+  type Walk = { walked: DirectedEdge[]; taken: Set<number>; cost: number };
+  const walkTo = (walk: Walk, reached: (edge: DirectedEdge) => boolean): boolean => {
+    const last = walk.walked[walk.walked.length - 1] ?? null;
+    const leg = walkWithoutTurningBack(graph, last?.to ?? home, last, reached, walk.taken, Infinity, true);
+    for (const edge of leg ?? []) {
+      const weight = walk.taken.has(edge.segmentId) ? REPEAT_COST : isConquestEdge(edge) ? NEW_STREET_COST : 1;
+      walk.cost += edge.lengthMeters * weight;
+      walk.walked.push(edge);
+      take(walk.taken, edge);
     }
+    return leg != null;
+  };
+  const leftIn = (pocket: Pocket, walk: Walk) => (edge: DirectedEdge) =>
+    pocket.segments.has(edge.segmentId) && !walk.taken.has(edge.segmentId);
+
+  /**
+   * Cheapest way through what is left of a pocket, counting the leg that leaves it. The nearest street first
+   * can strand the others behind a repeat, so every order and direction is tried; `bound` prunes the rest.
+   */
+  const throughPocket = (
+    walk: Walk,
+    pocket: Pocket,
+    leave: (walk: Walk) => (edge: DirectedEdge) => boolean,
+    bound: number,
+  ): { walk: Walk; cost: number } | null => {
+    const left = [...pocket.nodes]
+      .flatMap((node) => graph.outgoing.get(node) ?? [])
+      .filter((edge) => pocket.segments.has(edge.segmentId) && !walk.taken.has(edge.segmentId));
+    if (left.length === 0) {
+      const onward: Walk = { walked: [...walk.walked], taken: new Set(walk.taken), cost: walk.cost };
+      walkTo(onward, leave(onward));
+      return onward.cost < bound ? { walk, cost: onward.cost } : null;
+    }
+    let best: { walk: Walk; cost: number } | null = null;
+    let cheapest = bound;
+    for (const target of left) {
+      const trial: Walk = { walked: [...walk.walked], taken: new Set(walk.taken), cost: walk.cost };
+      if (!walkTo(trial, (edge) => edge === target) || trial.cost >= cheapest) continue;
+      const through = throughPocket(trial, pocket, leave, cheapest);
+      if (!through) continue;
+      best = through;
+      cheapest = through.cost;
+    }
+    return best;
+  };
+
+  const walkTour = (stops: readonly Pocket[]) => {
+    let walk: Walk = { walked: [], taken: new Set(), cost: 0 };
+    const order = reversed ? [...stops].reverse() : stops;
+    order.forEach((pocket, index) => {
+      const after = order[index + 1];
+      const leave = (from: Walk) => (after ? leftIn(after, from) : (edge: DirectedEdge) => edge.to === home);
+      for (;;) {
+        const left = [...pocket.segments].filter((id) => !walk.taken.has(id)).length;
+        if (left >= 2 && left <= POCKET_LOOKAHEAD_STREETS) {
+          walk = throughPocket(walk, pocket, leave, Infinity)?.walk ?? walk;
+          return;
+        }
+        if (!walkTo(walk, leftIn(pocket, walk))) return;
+      }
+    });
+    const { walked, taken } = walk;
     if (walked.length === 0) return null;
-    if (walked[walked.length - 1]!.to !== home && !walkTo((edge) => edge.to === home)) return null;
+    if (walked[walked.length - 1]!.to !== home && !walkTo(walk, (edge) => edge.to === home)) return null;
     return { ...measureWalk(walked), taken };
   };
 
