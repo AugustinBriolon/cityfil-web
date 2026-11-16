@@ -414,9 +414,26 @@ function cutAtJunctions(segments: readonly PlanSegment[]): PlanSegment[] {
   });
 }
 
-/** The streets as the planner needs them: twins credited, then cut where they meet. */
+/** The streets as the planner needs them: one of each, twins credited, then cut where they meet. */
 function streetsAsRun(streets: readonly PlanSegment[]): PlanSegment[] {
-  return cutAtJunctions(withTwinsCredited(streets));
+  return cutAtJunctions(withTwinsCredited(withoutCopies(streets)));
+}
+
+/**
+ * A street on the boundary is stored once per city, drawn on the same points. Left in, the copy is another
+ * street to the search, and turning back onto it is not turning back. The city's own piece is the one kept.
+ */
+function withoutCopies(segments: readonly PlanSegment[]): PlanSegment[] {
+  const drawnOn = (segment: PlanSegment) => {
+    const points = segment.coordinates.map((point) => `${point[0]!.toFixed(6)},${point[1]!.toFixed(6)}`);
+    return (points[0]! < points[points.length - 1]! ? points : points.reverse()).join(" ");
+  };
+  const kept = new Map<string, PlanSegment>();
+  for (const segment of segments) {
+    const key = drawnOn(segment);
+    if (!kept.has(key) || (isCoverageSegment(segment) && !isCoverageSegment(kept.get(key)!))) kept.set(key, segment);
+  }
+  return [...kept.values()];
 }
 
 /** The streets as the runner sees them: a carriageway whose twin is run needs no run of its own. */

@@ -714,6 +714,20 @@ describe("collection loops", () => {
     expect(route.coversAll).toBe(true);
   });
 
+  it("does not turn back mid-street onto the neighbouring city's copy of a boundary street", () => {
+    // Every street is also loaded as the neighbour's copy: the same points, another id, nothing to gain.
+    const copies = streets.map((street) => ({
+      ...street,
+      id: street.id + 1_000,
+      covered: true,
+      countsForCoverage: false,
+    }));
+    const route = buildRunPlanRoute([...streets, ...copies], { budgetMeters: 5_000, start: athlete, loop: true });
+    expect(route.coversAll).toBe(true);
+    const run = streetsRun(route.coordinates);
+    expect(new Set(run).size).toBe(run.length);
+  });
+
   it("takes back a dropped scrap the loop runs past, when it still fits", () => {
     // Two scraps on one street, 100 m apart: whatever the tour order makes of them, a loop that touches
     // the second one and has the distance for it does not leave it beside the line.
