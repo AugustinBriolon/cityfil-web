@@ -54,7 +54,7 @@ const toLineGeoJson = (coordinates: Position[]) => ({ type: "LineString", coordi
 function insertTwinsSql(osmRelationId: number) {
   return sql`
     WITH line AS (
-      SELECT id, name,
+      SELECT id, name, path,
              ST_LineInterpolatePoint(path, 0.5) AS middle,
              degrees(ST_Azimuth(ST_StartPoint(path)::geography, ST_EndPoint(path)::geography)) AS bearing,
              ST_Distance(ST_StartPoint(path)::geography, ST_EndPoint(path)::geography) / 2 AS half
@@ -73,6 +73,8 @@ function insertTwinsSql(osmRelationId: number) {
     WHERE gap.apart > 0
       AND abs(mod((other.bearing - line.bearing + 270)::numeric, 180) - 90) <= ${TWIN_RULES.maxAngleDegrees}
       AND abs(gap.apart * sin(gap.heading)) <= ${TWIN_RULES.maxApartMeters}
+      -- Carriageways run apart: two pieces that meet are one street going round a bend.
+      AND NOT ST_Intersects(line.path, other.path)
       -- Alongside, not ahead: the next piece of the same street is no twin.
       AND abs(gap.apart * cos(gap.heading)) <= greatest(line.half, other.half)
     ON CONFLICT DO NOTHING

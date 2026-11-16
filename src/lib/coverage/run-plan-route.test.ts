@@ -689,6 +689,24 @@ describe("collection loops", () => {
     expect(route.pathMeters).toBeLessThanOrEqual(900 * 1.1);
     expect(route.coordinates.at(-1)).toEqual(route.coordinates[0]);
   });
+
+  it("takes back a dropped scrap the loop runs past, when it still fits", () => {
+    // Two scraps on one street, 100 m apart: whatever the tour order makes of them, a loop that touches
+    // the second one and has the distance for it does not leave it beside the line.
+    const pair = new Set([3, 7]);
+    const twoScraps = grid().map((street) => ({ ...street, covered: !pair.has(street.id) }));
+    for (const budgetMeters of [700, 900, 1_200]) {
+      const route = buildRunPlanRoute(twoScraps, { budgetMeters, start: athlete, loop: true });
+      const run = new Set(streetsRun(route.coordinates));
+      const onRoute = new Set(route.coordinates.map((point) => point.join(",")));
+      for (const scrap of twoScraps.filter((street) => !street.covered)) {
+        const [from, to] = scrap.coordinates.map((point) => point.join(","));
+        const wasRun = run.has([from, to].sort().join("|"));
+        const beside = onRoute.has(from!) || onRoute.has(to!);
+        if (beside && !wasRun) expect(route.pathMeters + 2 * scrap.lengthMeters).toBeGreaterThan(budgetMeters * 1.1);
+      }
+    }
+  });
 });
 
 describe("junctions", () => {
@@ -785,6 +803,37 @@ describe("twin carriageways", () => {
     const streets = [...chain(1, 3, false).map((piece) => named(piece, "Boulevard A")), ...neighbour];
     const route = buildRunPlanRoute(streets, { budgetMeters: 2_000, start: [2, 48], loop: true });
     expect(route.uncoveredMeters).toBe(300);
+  });
+
+  it("does not take the far side of a hairpin for a second carriageway", () => {
+    // One street doubling back on itself: parallel, 3 m apart, same name, and one line all the same.
+    const up = named(
+      seg(
+        1,
+        [
+          [2, 48],
+          [2, 48.00036],
+        ],
+        true,
+        40,
+      ),
+      "Rue K",
+    );
+    const back = named(
+      seg(
+        2,
+        [
+          [2, 48.00036],
+          [2.00008, 48.0002],
+        ],
+        false,
+        20,
+      ),
+      "Rue K",
+    );
+    const route = buildRunPlanRoute([up, back], { budgetMeters: 1_000, start: [2, 48], loop: true });
+    expect(route.uncoveredMeters).toBe(20);
+    expect(route.coordinates).toContainEqual([2.00008, 48.0002]);
   });
 
   it("asks for nothing on a carriageway whose twin is already run", () => {

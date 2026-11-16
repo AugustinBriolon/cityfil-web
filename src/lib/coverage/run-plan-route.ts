@@ -345,6 +345,7 @@ function twinSegments(segments: readonly PlanSegment[]): Map<number, PlanSegment
       const { start, end } = endsOf(segment);
       return {
         segment,
+        tips: [start, end].map((tip) => `${tip[0]!.toFixed(6)},${tip[1]!.toFixed(6)}`),
         middle: midpoint([start, end]),
         bearing: bearingDegrees(start, end),
         half: distanceMeters(start, end) / 2,
@@ -363,6 +364,8 @@ function twinSegments(segments: readonly PlanSegment[]): Map<number, PlanSegment
       for (let dy = -1; dy <= 1; dy++) {
         for (const other of cells.get(`${cx + dx},${cy + dy}`) ?? []) {
           if (other.segment.id === line.segment.id || other.segment.name !== line.segment.name) continue;
+          // Carriageways run apart: two pieces meeting end to end are one street going round a bend.
+          if (other.tips.some((tip) => line.tips.includes(tip))) continue;
           const angle = Math.abs(((other.bearing - line.bearing + 270) % 180) - 90);
           if (angle > TWIN_RULES.maxAngleDegrees) continue;
           const apart = distanceMeters(line.middle, other.middle);
@@ -1118,7 +1121,7 @@ function roundTrips(graph: StreetGraph, home: NodeId, budgetMeters: number): Rou
 }
 
 /** Unfinished streets that touch each other: one stop of a collection loop. */
-type Pocket = { segments: Set<number>; center: Position; meters: number };
+type Pocket = { segments: Set<number>; nodes: Set<NodeId>; center: Position; meters: number };
 
 function unfinishedPockets(graph: StreetGraph, reachable: ReadonlyMap<NodeId, number>): Pocket[] {
   const pockets: Pocket[] = [];
@@ -1127,7 +1130,7 @@ function unfinishedPockets(graph: StreetGraph, reachable: ReadonlyMap<NodeId, nu
     if (!reachable.has(node)) continue;
     for (const first of edges) {
       if (!isConquestEdge(first) || pocketed.has(first.segmentId)) continue;
-      const pocket: Pocket = { segments: new Set(), center: [0, 0], meters: 0 };
+      const pocket: Pocket = { segments: new Set(), nodes: new Set(), center: [0, 0], meters: 0 };
       const ends: Position[] = [];
       const queue = [first];
       pocketed.add(first.segmentId);
@@ -1135,6 +1138,7 @@ function unfinishedPockets(graph: StreetGraph, reachable: ReadonlyMap<NodeId, nu
         const edge = queue.pop()!;
         pocket.segments.add(edge.segmentId);
         pocket.meters += edge.lengthMeters;
+        pocket.nodes.add(edge.from).add(edge.to);
         ends.push(graph.nodes[edge.from]!, graph.nodes[edge.to]!);
         for (const node of [edge.from, edge.to]) {
           for (const next of graph.outgoing.get(node) ?? []) {
@@ -1196,12 +1200,10 @@ function collectionLoop(
 ): (WalkedLoop & { coversAll: boolean }) | null {
   const reachable = walkCosts(graph, home, (edge) => edge.lengthMeters).cost;
   const origin = graph.nodes[home]!;
-  let stops = tourOrder(origin, unfinishedPockets(graph, reachable));
-  const everyPocket = stops.length;
-  const center = (index: number) => (index < 0 || index >= stops.length ? origin : stops[index]!.center);
+  const everyStop = tourOrder(origin, unfinishedPockets(graph, reachable));
+  const fits = (loop: WalkedLoop) => loop.meters <= budgetMeters * 1.1;
 
-  for (;;) {
-    if (stops.length === 0) return null;
+  const walkTour = (stops: readonly Pocket[]) => {
     const walked: DirectedEdge[] = [];
     const taken = new Set<number>();
     const walkTo = (reached: (edge: DirectedEdge) => boolean): boolean => {
@@ -1226,13 +1228,14 @@ function collectionLoop(
     }
     if (walked.length === 0) return null;
     if (walked[walked.length - 1]!.to !== home && !walkTo((edge) => edge.to === home)) return null;
+    return { ...measureWalk(walked), taken };
+  };
 
-    const loop = measureWalk(walked);
-    if (loop.meters <= budgetMeters * 1.1) {
-      const coversAll = stops.length === everyPocket && unfinishedIn(graph).every((id) => taken.has(id));
-      return { ...loop, coversAll };
-    }
+  let stops = everyStop;
+  let tour = walkTour(stops);
+  while (tour && !fits(tour)) {
     // Over budget: drop the stop that buys the least new street per metre of detour, and walk again.
+    const center = (index: number) => (index < 0 || index >= stops.length ? origin : stops[index]!.center);
     let worst = 0;
     let worstYield = Infinity;
     stops.forEach((pocket, index) => {
@@ -1247,7 +1250,22 @@ function collectionLoop(
       }
     });
     stops = stops.filter((_, index) => index !== worst);
+    tour = walkTour(stops);
   }
+  if (!tour) return null;
+
+  // A dropped street the loop runs past looks forgotten: take it back while the loop still fits.
+  for (const pocket of everyStop) {
+    if (stops.includes(pocket) || !tour.walked.some((edge) => pocket.nodes.has(edge.to))) continue;
+    const withIt = everyStop.filter((stop) => stop === pocket || stops.includes(stop));
+    const longer = walkTour(withIt);
+    if (longer && fits(longer)) {
+      stops = withIt;
+      tour = longer;
+    }
+  }
+  const { taken, ...loop } = tour;
+  return { ...loop, coversAll: unfinishedIn(graph).every((id) => taken.has(id)) };
 }
 
 function unfinishedIn(graph: StreetGraph): number[] {
