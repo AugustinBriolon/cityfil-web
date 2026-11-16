@@ -41,7 +41,9 @@ runs; this package is the web globe plus the mobile API.
   planned as one street, and no straight line is ever drawn to a runner outside the city
   ([ADR 0020](docs/adr/0020-one-carriageway-runs-the-street-and-no-straight-link-to-the-city.md)). The street
   graph has a junction wherever two streets share a vertex, never where they merely come close
-  ([ADR 0021](docs/adr/0021-junctions-where-streets-really-meet.md)).
+  ([ADR 0021](docs/adr/0021-junctions-where-streets-really-meet.md)). Streets of the neighbouring cities along the
+  boundary are loaded with every plan, so a street cut by the boundary is not a dead end
+  ([ADR 0022](docs/adr/0022-neighbouring-streets-along-the-whole-boundary.md)).
 - City rivalries: `POST /api/mobile/cities/invite` mints a 14-day link, `POST /api/mobile/cities/invite/accept`
   pairs two runners on one city, `GET /api/mobile/cities/:areaId/board` returns rivals plus Founder / Conqueror /
   Keeper titles. `PATCH /api/mobile/me` sets `profileVisibility` (`private` by default). Public names appear on the

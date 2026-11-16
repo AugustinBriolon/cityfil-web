@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 
-import { APPROACH_STREETS_DEGREES, type LngLat } from "@/lib/coverage/plan-start";
+import { APPROACH_STREETS_DEGREES, BORDER_STREETS_DEGREES, type LngLat } from "@/lib/coverage/plan-start";
 import type { CityCoverage, CoveredStreets } from "@/lib/coverage/street-coverage";
 import {
   estimateFinishMeters,
@@ -107,10 +107,10 @@ export function createCoverageRepository(
     END
   `;
 
-  /** Whole city street graph, unfinished streets flagged — full graph, pocket clipping left plans short. */
   /**
-   * The city's streets, plus the neighbouring cities' around a start that stands outside it: those count for
-   * nothing, they are how the plan reaches the city along streets rather than as the crow flies.
+   * The whole city's streets, unfinished ones flagged (clipping to a pocket left plans short), plus the neighbouring cities' along its boundary and around a start that stands outside
+   * it. Those count for nothing: they are how a street cut by the boundary carries on instead of ending there,
+   * and how the plan reaches the city along streets rather than as the crow flies.
    */
   const loadPlanSegments = async (
     userId: string,
@@ -118,17 +118,22 @@ export function createCoverageRepository(
     start?: { lng: number; lat: number },
   ): Promise<PlanSegment[]> => {
     const startPoint = start ? sql`ST_SetSRID(ST_MakePoint(${start.lng}::float8, ${start.lat}::float8), 4326)` : null;
-    const approachStreets = startPoint
-      ? sql`
-        UNION ALL
-        SELECT segment.id::int, ST_AsGeoJSON(segment.path, 6), segment.length_meters::float8, true, false, segment.name
-        FROM street_segments AS segment
-        WHERE segment.area_id <> ${areaId}
-          AND segment.path && ST_Expand(${startPoint}, ${APPROACH_STREETS_DEGREES}::float8)
-          AND NOT EXISTS (
-            SELECT 1 FROM areas WHERE areas.osm_relation_id = ${areaId} AND ST_Covers(areas.boundary, ${startPoint})
-          )`
+    const aroundOutsideStart = startPoint
+      ? sql`OR (
+          segment.path && ST_Expand(${startPoint}, ${APPROACH_STREETS_DEGREES}::float8)
+          AND NOT ST_Covers(city.boundary, ${startPoint})
+        )`
       : sql``;
+    const neighbourStreets = sql`
+      UNION ALL
+      SELECT segment.id::int, ST_AsGeoJSON(segment.path, 6), segment.length_meters::float8, true, false, segment.name
+      FROM street_segments AS segment
+      JOIN areas AS city ON city.osm_relation_id = ${areaId}
+      WHERE segment.area_id <> ${areaId}
+        AND (
+          ST_DWithin(segment.path, city.boundary, ${BORDER_STREETS_DEGREES}::float8)
+          ${aroundOutsideStart}
+        )`;
     const rows = await database.execute<{
       id: number;
       geometry: string;
@@ -153,7 +158,7 @@ export function createCoverageRepository(
         segment.name AS name
       FROM street_segments AS segment
       WHERE segment.area_id = ${areaId}
-      ${approachStreets}
+      ${neighbourStreets}
     `);
     return rows.flatMap((row) => {
       const geometry = JSON.parse(row.geometry) as { type: string; coordinates: PlanSegment["coordinates"] };
