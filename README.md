@@ -37,7 +37,9 @@ runs; this package is the web globe plus the mobile API.
   start unless `loop=0`, and carry the turn instructions (`plan.maneuvers`) the app speaks (ADR 0017). A city down to
   scattered scraps gets a collection loop that visits them in tour order, and a start outside the city reaches it
   along the neighbouring city's streets
-  ([ADR 0019](docs/adr/0019-collection-loops-for-nearly-finished-cities.md)).
+  ([ADR 0019](docs/adr/0019-collection-loops-for-nearly-finished-cities.md)). The two carriageways of a boulevard are
+  planned as one street, and no straight line is ever drawn to a runner outside the city
+  ([ADR 0020](docs/adr/0020-one-carriageway-runs-the-street-and-no-straight-link-to-the-city.md)).
 - City rivalries: `POST /api/mobile/cities/invite` mints a 14-day link, `POST /api/mobile/cities/invite/accept`
   pairs two runners on one city, `GET /api/mobile/cities/:areaId/board` returns rivals plus Founder / Conqueror /
   Keeper titles. `PATCH /api/mobile/me` sets `profileVisibility` (`private` by default). Public names appear on the

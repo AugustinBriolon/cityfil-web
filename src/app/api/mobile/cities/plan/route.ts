@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { isPlanStartAllowed, PLAN_START_MAX_DISTANCE_METERS } from "@/lib/coverage/plan-start";
@@ -77,6 +77,10 @@ export async function GET(request: Request) {
     start,
     loop: parsed.data.loop === "1",
   });
+  if (start && !plan.startsFromPosition) {
+    // No street known from the runner to the city, so no line was drawn: fetch theirs for the next plan.
+    after(() => services.queueApproachStreets(start).catch((error) => console.error("approach streets", error)));
+  }
   const estimatedShareGain =
     city.totalMeters <= 0 ? 0 : Math.min(1 - (share ?? 0), plan.targetMeters / city.totalMeters);
 

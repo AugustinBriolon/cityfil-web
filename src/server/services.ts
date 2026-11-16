@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { LngLat } from "@/lib/coverage/plan-start";
+
 import { createTokenCipher } from "./crypto/token-cipher";
 import { createDatabase, type Database } from "./db/client";
 import { getServerEnv } from "./env";
@@ -15,6 +17,7 @@ import { createCoverageRepository } from "./repositories/coverage-repository";
 import { createStravaAccountRepository } from "./repositories/strava-account-repository";
 import { createUserCityRepository } from "./repositories/user-city-repository";
 import { createUserRepository } from "./repositories/user-repository";
+import { queueApproachStreets } from "./services/approach-streets";
 import { createAnalysisNotifyService } from "./services/analysis-notify-service";
 import { createAccountDeletionService } from "./services/account-deletion-service";
 import { createAccountLinkingService } from "./services/account-linking-service";
@@ -72,6 +75,7 @@ function buildServices(database: Database) {
       nominatim,
     }),
     cityImportQueue: createCityImportQueueService({ areas, importQueue, overpass, coverage }),
+    queueApproachStreets: (start: LngLat) => queueApproachStreets({ catalog, importQueue }, start),
     analysisNotify: createAnalysisNotifyService({ users }),
     accountLinking: createAccountLinkingService({ users, accounts, tokens }),
     accountDeletion: createAccountDeletionService({ users, accounts, strava, tokens, reportError: console.error }),

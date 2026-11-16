@@ -6,6 +6,7 @@ import {
   distanceMeters,
   estimateFinishMeters,
   MAX_ANCHOR_SNAP_METERS,
+  MAX_STRAIGHT_LINK_METERS,
   planOuting,
   planPocketExpandDegrees,
   runPlanRouteToGeoJson,
@@ -277,20 +278,62 @@ describe("buildRunPlanRoute", () => {
 
   it("keeps the athlete GPS as start when standing off the network inside snap range", () => {
     const pieces = chain(1, 20, false);
-    // ~80 m north of the chain — still within MAX_ANCHOR_SNAP_METERS, not on a node.
-    const athlete: [number, number] = [2.0, 48.0 + 0.00072];
-    expect(distanceMeters(athlete, [2.0, 48.0])).toBeGreaterThan(50);
-    expect(distanceMeters(athlete, [2.0, 48.0])).toBeLessThan(MAX_ANCHOR_SNAP_METERS);
+    // ~45 m north of the chain: a pavement's distance from the junction, not on a node.
+    const athlete: [number, number] = [2.0, 48.0 + 0.0004];
+    expect(distanceMeters(athlete, [2.0, 48.0])).toBeGreaterThan(40);
+    expect(distanceMeters(athlete, [2.0, 48.0])).toBeLessThan(MAX_STRAIGHT_LINK_METERS);
 
     const route = buildRunPlanRoute(pieces, { budgetMeters: 1_000, start: athlete });
 
     expect(route.start).toEqual(athlete);
     expect(route.coordinates[0]).toEqual(athlete);
     expect(route.jumpCount).toBe(1);
-    expect(route.jumpMeters).toBeGreaterThan(50);
+    expect(route.jumpMeters).toBeGreaterThan(40);
     expect(route.legs[0]?.kind).toBe("jump");
     // On-network walk starts after the GPS approach jump.
     expect(pathFollowsSegments(route.coordinates.slice(1) as [number, number][], pieces)).toBe(true);
+  });
+
+  it("draws no straight line to an athlete with no known street to the network", () => {
+    const pieces = chain(1, 20, false);
+    // ~200 m north of the chain: blocks away, and no street of theirs is known.
+    const athlete: [number, number] = [2.0, 48.0 + 0.0018];
+    expect(distanceMeters(athlete, [2.0, 48.0])).toBeGreaterThan(MAX_STRAIGHT_LINK_METERS);
+    expect(distanceMeters(athlete, [2.0, 48.0])).toBeLessThan(MAX_ANCHOR_SNAP_METERS);
+
+    for (const loop of [false, true]) {
+      const { route, startsFromPosition } = planOuting(pieces, { budgetMeters: 1_000, start: athlete, loop });
+      expect(startsFromPosition).toBe(false);
+      expect(route.jumpCount).toBe(0);
+      expect(route.legs.some((leg) => leg.kind === "jump")).toBe(false);
+      expect(pathFollowsSegments(route.coordinates as [number, number][], pieces)).toBe(true);
+    }
+  });
+
+  it("reaches the network along a neighbouring city's streets when they are known", () => {
+    const pieces = chain(1, 20, false);
+    const athlete: [number, number] = [2.0, 48.0 + 0.0018];
+    // The neighbour's street from the athlete down to the chain: counts for nothing, but is a street.
+    const approach = [0, 1].map((index) =>
+      seg(
+        100 + index,
+        [
+          [2.0, 48.0 + 0.0018 - index * 0.0009],
+          [2.0, 48.0 + 0.0018 - (index + 1) * 0.0009],
+        ],
+        true,
+        100,
+        false,
+      ),
+    );
+    const streets = [...pieces, ...approach];
+    const { route, startsFromPosition } = planOuting(streets, { budgetMeters: 1_500, start: athlete, loop: true });
+    expect(startsFromPosition).toBe(true);
+    expect(route.coordinates[0]).toEqual(athlete);
+    expect(route.coordinates.at(-1)).toEqual(athlete);
+    expect(route.jumpCount).toBe(0);
+    expect(route.uncoveredMeters).toBeGreaterThan(0);
+    expect(pathFollowsSegments(route.coordinates as [number, number][], streets)).toBe(true);
   });
 
   it("orients an anchored seed toward unfinished continuation, not the cul-de-sac", () => {
@@ -645,6 +688,64 @@ describe("collection loops", () => {
     expect(route.uncoveredMeters).toBeGreaterThanOrEqual(100);
     expect(route.pathMeters).toBeLessThanOrEqual(900 * 1.1);
     expect(route.coordinates.at(-1)).toEqual(route.coordinates[0]);
+  });
+});
+
+describe("twin carriageways", () => {
+  const named = (street: PlanSegment, name: string): PlanSegment => ({ ...street, name });
+  // A boulevard drawn as two lines 13 m apart, three 100 m pieces each, closed into a ring by two short links.
+  const boulevard = (southCovered: boolean): PlanSegment[] => [
+    ...chain(1, 3, false).map((piece) => named(piece, "Boulevard A")),
+    ...chain(11, 3, southCovered).map((piece) =>
+      named({ ...piece, coordinates: piece.coordinates.map(([lng, lat]) => [lng!, lat! - 0.00012]) }, "Boulevard A"),
+    ),
+    seg(
+      21,
+      [
+        [2, 48],
+        [2, 48 - 0.00012],
+      ],
+      true,
+      13,
+    ),
+    seg(
+      22,
+      [
+        [2 + 3 * 0.00135, 48],
+        [2 + 3 * 0.00135, 48 - 0.00012],
+      ],
+      true,
+      13,
+    ),
+  ];
+
+  it("runs one carriageway and counts both as conquered", () => {
+    const route = buildRunPlanRoute(boulevard(false), { budgetMeters: 2_000, start: [2, 48], loop: true });
+    expect(route.coversAll).toBe(true);
+    expect(route.uncoveredMeters).toBe(600);
+    // Out along one carriageway, back along the other: nothing left to fetch on a second pass.
+    expect(route.pathMeters).toBeLessThan(700);
+  });
+
+  it("takes no credit from a neighbouring city's copy of the street", () => {
+    const neighbour = chain(11, 3, true).map((piece) =>
+      named(
+        {
+          ...piece,
+          coordinates: piece.coordinates.map(([lng, lat]) => [lng!, lat! - 0.00012]),
+          countsForCoverage: false,
+        },
+        "Boulevard A",
+      ),
+    );
+    const streets = [...chain(1, 3, false).map((piece) => named(piece, "Boulevard A")), ...neighbour];
+    const route = buildRunPlanRoute(streets, { budgetMeters: 2_000, start: [2, 48], loop: true });
+    expect(route.uncoveredMeters).toBe(300);
+  });
+
+  it("asks for nothing on a carriageway whose twin is already run", () => {
+    const route = buildRunPlanRoute(boulevard(true), { budgetMeters: 2_000, start: [2, 48], loop: true });
+    expect(route.coordinates).toHaveLength(0);
   });
 });
 

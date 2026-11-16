@@ -106,6 +106,11 @@ export const MAX_ANCHOR_SNAP_METERS = 1_500;
 
 /** Below this, GPS is treated as already on the snap node (no approach jump). */
 const ANCHOR_JUMP_MIN_METERS = 5;
+/**
+ * Longest straight link drawn between the athlete and the street network: the pavement to the nearest
+ * junction. Further than that there are blocks in between, and a line through them is not a route.
+ */
+export const MAX_STRAIGHT_LINK_METERS = 60;
 
 function toRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
@@ -189,7 +194,10 @@ type DirectedEdge = {
   countsForCoverage: boolean;
   coordinates: Position[];
   name: string | null;
+  /** The other carriageways of this street ({@link twinSegments}): running one of them runs this one. */
+  twins: readonly Twin[];
 };
+type Twin = { segmentId: number; lengthMeters: number; unfinished: boolean };
 
 type StreetGraph = {
   nodes: Position[];
@@ -276,9 +284,16 @@ function buildStreetGraph(segments: readonly PlanSegment[], joinToleranceMeters:
     outgoing.set(edge.from, list);
   }
 
+  const twins = twinSegments(segments);
   let endpointCursor = 0;
   for (const segment of segments) {
     if (segment.coordinates.length < 2) continue;
+    const { covered } = segment;
+    const twinsLeft = (twins.get(segment.id) ?? []).map((twin) => ({
+      segmentId: twin.id,
+      lengthMeters: twin.lengthMeters,
+      unfinished: !twin.covered && isCoverageSegment(twin),
+    }));
     const start = rootToNode.get(find(endpointCursor++))!;
     const end = rootToNode.get(find(endpointCursor++))!;
     segmentNodes.set(segment.id, { start, end });
@@ -289,24 +304,84 @@ function buildStreetGraph(segments: readonly PlanSegment[], joinToleranceMeters:
       from: start,
       to: end,
       lengthMeters: segment.lengthMeters,
-      covered: segment.covered,
+      covered,
       countsForCoverage,
       coordinates: segment.coordinates,
       name: segment.name ?? null,
+      twins: twinsLeft,
     });
     addEdge({
       segmentId: segment.id,
       from: end,
       to: start,
       lengthMeters: segment.lengthMeters,
-      covered: segment.covered,
+      covered,
       countsForCoverage,
       coordinates: [...segment.coordinates].reverse(),
       name: segment.name ?? null,
+      twins: twinsLeft,
     });
   }
 
   return { nodes, outgoing, segmentNodes };
+}
+
+/** Carriageways of one boulevard are drawn this far apart at most, and run this parallel. */
+const TWIN_MAX_APART_METERS = 25;
+const TWIN_MAX_ANGLE_DEGREES = 20;
+
+/**
+ * For each segment, the segments of the same street running alongside it. OSM draws each carriageway of a
+ * boulevard as its own line; to a runner they are one street, and running one of them has run it.
+ */
+function twinSegments(segments: readonly PlanSegment[]): Map<number, PlanSegment[]> {
+  const cellDeg = 60 / 111_320;
+  const lines = segments
+    // Only streets of the city itself: a neighbour's copy of a boundary street credits nothing here.
+    .filter((segment) => isCoverageSegment(segment) && segment.name != null && segment.coordinates.length >= 2)
+    .map((segment) => {
+      const { start, end } = endsOf(segment);
+      return {
+        segment,
+        middle: midpoint([start, end]),
+        bearing: bearingDegrees(start, end),
+        half: distanceMeters(start, end) / 2,
+      };
+    });
+  const cells = new Map<string, typeof lines>();
+  const cellOf = (point: Position) => [Math.floor(point[0]! / cellDeg), Math.floor(point[1]! / cellDeg)] as const;
+  for (const line of lines) {
+    const key = cellOf(line.middle).join(",");
+    cells.set(key, [...(cells.get(key) ?? []), line]);
+  }
+  const twins = new Map<number, PlanSegment[]>();
+  for (const line of lines) {
+    const [cx, cy] = cellOf(line.middle);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (const other of cells.get(`${cx + dx},${cy + dy}`) ?? []) {
+          if (other.segment.id === line.segment.id || other.segment.name !== line.segment.name) continue;
+          const angle = Math.abs(((other.bearing - line.bearing + 270) % 180) - 90);
+          if (angle > TWIN_MAX_ANGLE_DEGREES) continue;
+          const apart = distanceMeters(line.middle, other.middle);
+          const offset = toRadians(bearingDegrees(line.middle, other.middle) - line.bearing);
+          if (Math.abs(apart * Math.sin(offset)) > TWIN_MAX_APART_METERS) continue;
+          // Alongside, not ahead: the next piece of the same street is no twin.
+          if (Math.abs(apart * Math.cos(offset)) > Math.max(line.half, other.half)) continue;
+          twins.set(line.segment.id, [...(twins.get(line.segment.id) ?? []), other.segment]);
+        }
+      }
+    }
+  }
+  return twins;
+}
+
+/** The streets as the runner sees them: a carriageway whose twin is run needs no run of its own. */
+function withTwinsCredited(segments: readonly PlanSegment[]): PlanSegment[] {
+  const twins = twinSegments(segments);
+  return segments.map((segment) =>
+    !segment.covered && twins.get(segment.id)?.some((twin) => twin.covered) ? { ...segment, covered: true } : segment,
+  );
 }
 
 function isConquestEdge(edge: DirectedEdge): boolean {
@@ -864,6 +939,17 @@ const HAIRPIN_PENALTY_METERS = 600;
 /** Loops kept for "another route": the best ones, each a different shape. */
 const ROUND_TRIP_CHOICES = 5;
 
+/** Marks a street as run in this loop, with its other carriageways; returns the unfinished metres those add. */
+function take(taken: Set<number>, edge: DirectedEdge): number {
+  taken.add(edge.segmentId);
+  let twinMeters = 0;
+  for (const twin of edge.twins) {
+    if (twin.unfinished && !taken.has(twin.segmentId)) twinMeters += twin.lengthMeters;
+    taken.add(twin.segmentId);
+  }
+  return twinMeters;
+}
+
 type WalkedLoop = { walked: DirectedEdge[]; meters: number; newMeters: number; repeatMeters: number };
 type RoundTrip = WalkedLoop & { score: number };
 
@@ -901,7 +987,7 @@ function measureWalk(walked: DirectedEdge[]): WalkedLoop & { hairpins: number } 
     tip = points[points.length - 1];
     if (seen.has(edge.segmentId)) repeatMeters += edge.lengthMeters;
     else if (isConquestEdge(edge)) newMeters += edge.lengthMeters;
-    seen.add(edge.segmentId);
+    newMeters += take(seen, edge);
   }
   return { walked, meters, newMeters, repeatMeters, hairpins };
 }
@@ -970,7 +1056,7 @@ function roundTrips(graph: StreetGraph, home: NodeId, budgetMeters: number): Rou
           }
           for (const edge of leg) {
             walked.push(edge);
-            taken.add(edge.segmentId);
+            take(taken, edge);
           }
         }
         if (!complete || walked.length === 0) continue;
@@ -1091,7 +1177,7 @@ function collectionLoop(
       );
       for (const edge of leg ?? []) {
         walked.push(edge);
-        taken.add(edge.segmentId);
+        take(taken, edge);
       }
       return leg != null;
     };
@@ -1201,7 +1287,7 @@ function routeFromLoop(
   if (anchor) {
     const networkEntry = coordinates[0]!;
     const approachMeters = distanceMeters(anchor, networkEntry);
-    if (approachMeters >= ANCHOR_JUMP_MIN_METERS) {
+    if (approachMeters >= ANCHOR_JUMP_MIN_METERS && approachMeters <= MAX_STRAIGHT_LINK_METERS) {
       coordinates.unshift(anchor);
       for (const maneuver of maneuvers) maneuver.index += 1;
       legs.unshift({ coordinates: [anchor, networkEntry], kind: "jump" });
@@ -1246,7 +1332,8 @@ function emptyRoute(): RunPlanRoute {
  * Stays strictly on OSM / connector edges — never invents aerial shortcuts through blocks.
  * Long continuous OSM LineStrings are walked in full (any length is fine when on-network).
  */
-export function buildRunPlanRoute(segments: readonly PlanSegment[], options: RunPlanRouteOptions): RunPlanRoute {
+export function buildRunPlanRoute(streets: readonly PlanSegment[], options: RunPlanRouteOptions): RunPlanRoute {
+  const segments = withTwinsCredited(streets);
   // The finishing walk has to take every street, dead ends included.
   if (!options.loop || options.homewardSteer === false) return walkPlan(segments, options, new Set()).route;
   const roundTrip = planLoop(segments, options);
@@ -1422,6 +1509,7 @@ function walkPlan(
         countsForCoverage: true,
         coordinates: seedCoords,
         name: seed.name ?? null,
+        twins: [],
       },
     );
 
@@ -1599,7 +1687,7 @@ function walkPlan(
   if (anchor) {
     const networkEntry = coordinates[0]!;
     const approachMeters = distanceMeters(anchor, networkEntry);
-    if (approachMeters >= ANCHOR_JUMP_MIN_METERS) {
+    if (approachMeters >= ANCHOR_JUMP_MIN_METERS && approachMeters <= MAX_STRAIGHT_LINK_METERS) {
       coordinates.unshift(anchor);
       for (const maneuver of maneuvers) maneuver.index += 1;
       legs.unshift({ coordinates: [anchor, networkEntry], kind: "jump" });
@@ -1639,7 +1727,11 @@ type Outing = { route: RunPlanRoute; startsFromPosition: boolean };
 function planFromStartOrCity(segments: readonly PlanSegment[], options: OutingOptions): Outing {
   const route = buildRunPlanRoute(segments, options);
   if (options.start == null) return { route, startsFromPosition: false };
-  if (route.coordinates.length >= 2) return { route, startsFromPosition: true };
+  if (route.coordinates.length >= 2) {
+    // No streets known between the athlete and the city: the route starts at the city's edge, not at them.
+    const reached = distanceMeters(route.coordinates[0]!, options.start) <= MAX_STRAIGHT_LINK_METERS;
+    return { route, startsFromPosition: reached };
+  }
   return { route: buildRunPlanRoute(segments, { ...options, start: undefined }), startsFromPosition: false };
 }
 
@@ -1658,7 +1750,8 @@ function unfinishedMeters(segments: readonly PlanSegment[]): number {
   );
 }
 
-export function planOuting(segments: readonly PlanSegment[], options: OutingOptions): Outing {
+export function planOuting(streets: readonly PlanSegment[], options: OutingOptions): Outing {
+  const segments = withTwinsCredited(streets);
   const outing = planFromStartOrCity(segments, options);
   // Skip the second walk when this budget cannot finish anyway (the usual case on a big city).
   if (outing.route.coversAll || options.budgetMeters < unfinishedMeters(segments)) return outing;
@@ -1671,7 +1764,8 @@ export function planOuting(segments: readonly PlanSegment[], options: OutingOpti
  * null when it takes more than {@link MAX_FINISH_BUDGET_METERS} or some streets are unreachable on foot.
  * Uses the same walk as {@link planOuting}'s finishing fallback, so any budget at or above it finishes.
  */
-export function estimateFinishMeters(segments: readonly PlanSegment[], start?: Position, loop = false): number | null {
+export function estimateFinishMeters(streets: readonly PlanSegment[], start?: Position, loop = false): number | null {
+  const segments = withTwinsCredited(streets);
   const unfinished = unfinishedMeters(segments);
   if (unfinished === 0) return 0;
   if (unfinished > MAX_FINISH_BUDGET_METERS) return null;
