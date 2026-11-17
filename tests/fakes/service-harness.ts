@@ -9,7 +9,7 @@ import { createInMemoryRepositories } from "./in-memory-repositories";
 import { plainTextCipher } from "./plain-text-cipher";
 
 export const HARNESS_NOW = new Date("2026-09-16T12:00:00Z");
-export const HARNESS_ATHLETE_ID = 42;
+export const HARNESS_ATHLETE_ID = "42";
 
 /** Wires in-memory repositories, a fake Strava client and a real token service around one linked athlete. */
 export async function createServiceHarness() {

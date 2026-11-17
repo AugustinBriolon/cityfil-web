@@ -2,11 +2,12 @@ import { and, asc, eq, sql } from "drizzle-orm";
 
 import type { Database } from "@/server/db/client";
 import { activities, type Activity, type NewActivity } from "@/server/db/schema";
+import type { StravaId } from "@/server/strava/strava-types";
 
 export type ActivityRepository = {
   listByUser: (userId: string) => Promise<Activity[]>;
   upsertMany: (records: NewActivity[]) => Promise<void>;
-  deleteForUser: (userId: string, stravaActivityId: number) => Promise<void>;
+  deleteForUser: (userId: string, stravaActivityId: StravaId) => Promise<void>;
 };
 
 export function createActivityRepository(database: Database): ActivityRepository {

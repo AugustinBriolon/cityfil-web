@@ -25,7 +25,7 @@ const tokens = {
 };
 
 function linkAthlete(athleteId: number, displayName = "Ada") {
-  return accounts.createWithUser({ displayName, avatarUrl: null }, { athleteId, ...tokens });
+  return accounts.createWithUser({ displayName, avatarUrl: null }, { athleteId: String(athleteId), ...tokens });
 }
 
 describe("Postgres repositories", () => {
@@ -42,7 +42,7 @@ describe("Postgres repositories", () => {
       const user = await linkAthlete(42);
 
       expect(await users.findById(user.id)).toMatchObject({ displayName: "Ada" });
-      expect(await accounts.findByUserId(user.id)).toMatchObject({ athleteId: 42, ...tokens, lastSyncedAt: null });
+      expect(await accounts.findByUserId(user.id)).toMatchObject({ athleteId: "42", ...tokens, lastSyncedAt: null });
     });
 
     it("refuses to bind the same athlete twice and leaves no orphan user", async () => {
@@ -61,10 +61,10 @@ describe("Postgres repositories", () => {
       const rotated = { ...tokens, accessTokenEncrypted: "rotated" };
       const syncedAt = new Date("2026-09-16T12:00:00Z");
 
-      await accounts.updateTokens(42, rotated);
-      await accounts.markSynced(42, syncedAt);
+      await accounts.updateTokens("42", rotated);
+      await accounts.markSynced("42", syncedAt);
 
-      expect(await accounts.findByAthleteId(42)).toMatchObject({
+      expect(await accounts.findByAthleteId("42")).toMatchObject({
         accessTokenEncrypted: "rotated",
         lastSyncedAt: syncedAt,
       });
@@ -79,35 +79,53 @@ describe("Postgres repositories", () => {
         return { ...tokens, refreshTokenEncrypted: next };
       };
 
-      await Promise.all([accounts.rotateTokens(42, rotateTo("first")), accounts.rotateTokens(42, rotateTo("second"))]);
+      await Promise.all([
+        accounts.rotateTokens("42", rotateTo("first")),
+        accounts.rotateTokens("42", rotateTo("second")),
+      ]);
 
       // The second rotation waited for the lock and read the first one's write, not the original token.
       expect(seen[0]).toBe("encrypted-refresh");
       expect(["first", "second"]).toContain(seen[1]);
-      await expect(accounts.rotateTokens(999, rotateTo("x"))).resolves.toBe(false);
+      await expect(accounts.rotateTokens("999", rotateTo("x"))).resolves.toBe(false);
     });
   });
 
   describe("activities", () => {
     it("upserts runs idempotently and lists them chronologically", async () => {
       const user = await linkAthlete(42);
-      const later = toActivityRecord(buildStravaActivity({ id: 2, start_date: "2026-09-02T06:00:00Z" }), user.id);
-      const earlier = toActivityRecord(buildStravaActivity({ id: 1, start_date: "2026-09-01T06:00:00Z" }), user.id);
+      const later = toActivityRecord(buildStravaActivity({ id: "2", start_date: "2026-09-02T06:00:00Z" }), user.id);
+      const earlier = toActivityRecord(buildStravaActivity({ id: "1", start_date: "2026-09-01T06:00:00Z" }), user.id);
 
       await activities.upsertMany([later, earlier]);
       await activities.upsertMany([{ ...later, name: "Renamed" }]);
 
       const runs = await activities.listByUser(user.id);
       expect(runs.map((run) => [run.stravaActivityId, run.name])).toEqual([
-        [1, "Morning Run"],
-        [2, "Renamed"],
+        ["1", "Morning Run"],
+        ["2", "Renamed"],
       ]);
+    });
+
+    it("stores 64-bit Strava ids without losing precision", async () => {
+      const bigId = "9223372036854775783";
+      const user = await accounts.createWithUser(
+        { displayName: "Ada", avatarUrl: null },
+        { athleteId: bigId, ...tokens },
+      );
+      await activities.upsertMany([toActivityRecord(buildStravaActivity({ id: bigId }), user.id)]);
+
+      expect((await accounts.findByAthleteId(bigId))?.userId).toBe(user.id);
+      expect((await activities.listByUser(user.id)).map((run) => run.stravaActivityId)).toEqual([bigId]);
+
+      await activities.deleteForUser(user.id, bigId);
+      expect(await activities.listByUser(user.id)).toEqual([]);
     });
 
     it("never moves an existing activity to another user", async () => {
       const owner = await linkAthlete(42);
       const intruder = await linkAthlete(7, "Grace");
-      const record = toActivityRecord(buildStravaActivity({ id: 1 }), owner.id);
+      const record = toActivityRecord(buildStravaActivity({ id: "1" }), owner.id);
 
       await activities.upsertMany([record]);
       await activities.upsertMany([{ ...record, userId: intruder.id, name: "Hijacked" }]);
@@ -119,23 +137,23 @@ describe("Postgres repositories", () => {
     it("only deletes activities belonging to the given user", async () => {
       const owner = await linkAthlete(42);
       const other = await linkAthlete(7, "Grace");
-      await activities.upsertMany([toActivityRecord(buildStravaActivity({ id: 1 }), owner.id)]);
+      await activities.upsertMany([toActivityRecord(buildStravaActivity({ id: "1" }), owner.id)]);
 
-      await activities.deleteForUser(other.id, 1);
+      await activities.deleteForUser(other.id, "1");
       expect(await activities.listByUser(owner.id)).toHaveLength(1);
 
-      await activities.deleteForUser(owner.id, 1);
+      await activities.deleteForUser(owner.id, "1");
       expect(await activities.listByUser(owner.id)).toHaveLength(0);
     });
   });
 
   it("deleting a user cascades to its Strava account and activities", async () => {
     const user = await linkAthlete(42);
-    await activities.upsertMany([toActivityRecord(buildStravaActivity({ id: 1 }), user.id)]);
+    await activities.upsertMany([toActivityRecord(buildStravaActivity({ id: "1" }), user.id)]);
 
     await users.delete(user.id);
 
-    expect(await accounts.findByAthleteId(42)).toBeUndefined();
+    expect(await accounts.findByAthleteId("42")).toBeUndefined();
     expect(await activities.listByUser(user.id)).toEqual([]);
   });
 
@@ -144,8 +162,8 @@ describe("Postgres repositories", () => {
       const ada = await linkAthlete(42, "Ada");
       const bob = await linkAthlete(43, "Bob");
       await activities.upsertMany([
-        toActivityRecord(buildStravaActivity({ id: 1, distance: 5000, start_date: "2026-09-01T06:00:00Z" }), ada.id),
-        toActivityRecord(buildStravaActivity({ id: 2, distance: 7000, start_date: "2026-09-03T06:00:00Z" }), ada.id),
+        toActivityRecord(buildStravaActivity({ id: "1", distance: 5000, start_date: "2026-09-01T06:00:00Z" }), ada.id),
+        toActivityRecord(buildStravaActivity({ id: "2", distance: 7000, start_date: "2026-09-03T06:00:00Z" }), ada.id),
       ]);
       await userCities.upsertMany(ada.id, [{ osmRelationId: 1, name: "Colombes" }]);
 

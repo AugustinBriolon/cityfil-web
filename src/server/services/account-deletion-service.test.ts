@@ -16,7 +16,7 @@ describe("createAccountDeletionService", () => {
     harness = await createServiceHarness();
     reportError = vi.fn<(message: string, error: unknown) => void>();
     service = createAccountDeletionService({ ...harness, reportError });
-    await harness.activities.upsertMany([toActivityRecord(harness.buildOwnedActivity({ id: 1 }), harness.user.id)]);
+    await harness.activities.upsertMany([toActivityRecord(harness.buildOwnedActivity({ id: "1" }), harness.user.id)]);
   });
 
   it("revokes Strava access and deletes the user, account and runs", async () => {

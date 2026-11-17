@@ -6,7 +6,7 @@ import { countCountries, summarizeRuns, type LocateCountry } from "./run-stats";
 import type { RunSummary } from "./run-summary";
 
 const run = (distanceMeters: number, movingTimeSeconds: number): RunSummary => ({
-  id: distanceMeters,
+  id: String(distanceMeters),
   name: "Run",
   startDate: "2026-09-01T06:30:00.000Z",
   distanceMeters,
@@ -22,7 +22,7 @@ function startPointsAt(...positions: [number, number][]): RunStartPoints {
       type: "Feature",
       geometry: { type: "Point", coordinates } satisfies Point,
       properties: {
-        id: index,
+        id: String(index),
         name: "Run",
         startDate: "2026-09-01T06:30:00.000Z",
         distanceMeters: 0,

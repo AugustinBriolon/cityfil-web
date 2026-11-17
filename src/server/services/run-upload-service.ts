@@ -1,13 +1,13 @@
 import type { StravaAccountRepository } from "@/server/repositories/strava-account-repository";
 import { buildRunGpx, type RecordedRun } from "@/server/strava/gpx";
 import { StravaApiError, type StravaClient } from "@/server/strava/strava-client";
-import type { StravaUpload } from "@/server/strava/strava-types";
+import type { StravaId, StravaUpload } from "@/server/strava/strava-types";
 
 import type { StravaTokenService } from "./strava-token-service";
 
 export type RunUploadState =
   | { status: "processing"; uploadId: number }
-  | { status: "ready"; uploadId: number; activityId: number }
+  | { status: "ready"; uploadId: number; activityId: StravaId }
   | { status: "failed"; uploadId: number; reason: string };
 
 /** The athlete signed in before Cityfil asked for `activity:write`: they must reconnect Strava. */
@@ -33,7 +33,7 @@ export function toRunUploadState(upload: StravaUpload): RunUploadState {
   if (upload.activity_id != null) return { status: "ready", uploadId: upload.id, activityId: upload.activity_id };
   if (upload.error) {
     const duplicateOf = DUPLICATE_PATTERN.exec(upload.error)?.[1];
-    if (duplicateOf) return { status: "ready", uploadId: upload.id, activityId: Number(duplicateOf) };
+    if (duplicateOf) return { status: "ready", uploadId: upload.id, activityId: duplicateOf };
     return { status: "failed", uploadId: upload.id, reason: upload.error.replace(/<[^>]*>/g, "") };
   }
   return { status: "processing", uploadId: upload.id };
@@ -54,11 +54,11 @@ type Dependencies = {
   strava: Pick<StravaClient, "uploadActivity" | "getUpload">;
   tokens: Pick<StravaTokenService, "getValidAccessToken">;
   /** Imports the activity right away instead of waiting for Strava's webhook. */
-  importActivity: (athleteId: number, activityId: number) => Promise<void>;
+  importActivity: (athleteId: StravaId, activityId: StravaId) => Promise<void>;
 };
 
 export function createRunUploadService({ accounts, strava, tokens, importActivity }: Dependencies): RunUploadService {
-  async function withAccount<T>(userId: string, action: (athleteId: number, accessToken: string) => Promise<T>) {
+  async function withAccount<T>(userId: string, action: (athleteId: StravaId, accessToken: string) => Promise<T>) {
     const account = await accounts.findByUserId(userId);
     if (!account) throw new StravaAccountMissingError();
     const accessToken = await tokens.getValidAccessToken(account);
@@ -70,7 +70,7 @@ export function createRunUploadService({ accounts, strava, tokens, importActivit
     }
   }
 
-  async function settle(athleteId: number, upload: StravaUpload): Promise<RunUploadState> {
+  async function settle(athleteId: StravaId, upload: StravaUpload): Promise<RunUploadState> {
     const state = toRunUploadState(upload);
     if (state.status === "ready") await importActivity(athleteId, state.activityId);
     return state;

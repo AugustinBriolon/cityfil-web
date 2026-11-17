@@ -84,7 +84,10 @@ function encodeRoute(latitude: number, fromLongitude: number, toLongitude: numbe
 }
 
 async function recordRun(userId: string, id: number, summaryPolyline: string) {
-  const record = toActivityRecord(buildStravaActivity({ id, map: { summary_polyline: summaryPolyline } }), userId);
+  const record = toActivityRecord(
+    buildStravaActivity({ id: String(id), map: { summary_polyline: summaryPolyline } }),
+    userId,
+  );
   await activities.upsertMany([record]);
   return record;
 }
@@ -92,7 +95,7 @@ async function recordRun(userId: string, id: number, summaryPolyline: string) {
 async function linkRunner(athleteId: number) {
   return accounts.createWithUser(
     { displayName: `Runner ${athleteId}`, avatarUrl: null },
-    { athleteId, accessTokenEncrypted: "a", refreshTokenEncrypted: "r", tokenExpiresAt: new Date() },
+    { athleteId: String(athleteId), accessTokenEncrypted: "a", refreshTokenEncrypted: "r", tokenExpiresAt: new Date() },
   );
 }
 
@@ -158,7 +161,7 @@ describe("street coverage in PostGIS", () => {
 
       const ids = await coverage.listActivityIdsInArea(runner.id, 1001);
 
-      expect([...ids].sort()).toEqual([10, 11]);
+      expect([...ids].sort()).toEqual(["10", "11"]);
     });
 
     it("builds a continuous run plan through uncovered streets instead of a scattered highlight", async () => {
@@ -322,7 +325,7 @@ describe("street coverage in PostGIS", () => {
       await coverage.markAllActivitiesPending();
       expect(await coverage.matchPendingActivities()).toBe(1);
 
-      await activities.deleteForUser(runner.id, 1);
+      await activities.deleteForUser(runner.id, "1");
       expect((await coverage.listCityCoverage(runner.id))[0]?.coveredMeters ?? 0).toBe(0);
     });
 

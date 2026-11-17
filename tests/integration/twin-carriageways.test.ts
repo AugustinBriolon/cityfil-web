@@ -55,7 +55,7 @@ const boulevardCity: AreaImport = {
 async function runTheSouthCarriageway(athleteId: number) {
   const runner = await accounts.createWithUser(
     { displayName: `Runner ${athleteId}`, avatarUrl: null },
-    { athleteId, accessTokenEncrypted: "a", refreshTokenEncrypted: "r", tokenExpiresAt: new Date() },
+    { athleteId: String(athleteId), accessTokenEncrypted: "a", refreshTokenEncrypted: "r", tokenExpiresAt: new Date() },
   );
   await testDatabase.database.execute(
     sql`INSERT INTO user_cities (user_id, osm_relation_id, name) VALUES (${runner.id}, 1002, 'Boulevardville')`,
@@ -66,7 +66,7 @@ async function runTheSouthCarriageway(athleteId: number) {
     [RUN_LATITUDE, 2.0095],
   ]);
   await activities.upsertMany([
-    toActivityRecord(buildStravaActivity({ id: athleteId, map: { summary_polyline: trace } }), runner.id),
+    toActivityRecord(buildStravaActivity({ id: String(athleteId), map: { summary_polyline: trace } }), runner.id),
   ]);
   await coverage.matchPendingActivities({ userId: runner.id });
   return runner;

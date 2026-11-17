@@ -1,10 +1,11 @@
 import type { StravaAccountRepository } from "@/server/repositories/strava-account-repository";
 import type { UserRepository } from "@/server/repositories/user-repository";
+import type { StravaId } from "@/server/strava/strava-types";
 
 import type { PlainStravaTokens, StravaTokenService } from "./strava-token-service";
 
 export type StravaSignIn = {
-  athleteId: number;
+  athleteId: StravaId;
   displayName: string;
   avatarUrl: string | null;
   tokens: PlainStravaTokens;

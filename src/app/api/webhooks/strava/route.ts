@@ -2,7 +2,7 @@ import { after, type NextRequest } from "next/server";
 
 import { getServerEnv } from "@/server/env";
 import { getServices } from "@/server/services";
-import { stravaWebhookEventSchema } from "@/server/strava/strava-types";
+import { parseStravaJson, stravaWebhookEventSchema } from "@/server/strava/strava-types";
 
 /** Subscription validation handshake sent once by Strava when the webhook is registered. */
 export function GET(request: NextRequest) {
@@ -16,7 +16,12 @@ export function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const parsed = stravaWebhookEventSchema.safeParse(await request.json().catch(() => null));
+  // Not request.json(): owner_id / object_id are 64-bit and have no `_str` twin in webhook events.
+  const body = await request
+    .text()
+    .then(parseStravaJson)
+    .catch(() => null);
+  const parsed = stravaWebhookEventSchema.safeParse(body);
   if (!parsed.success) return Response.json({ error: "Invalid event" }, { status: 400 });
 
   // Strava expects an acknowledgement within 2 seconds; processing continues after the response.

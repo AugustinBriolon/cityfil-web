@@ -5,8 +5,8 @@ export const SAMPLE_POLYLINE = "_p~iF~ps|U_ulLnnqC_mqNvxq`@";
 
 export function buildStravaActivity(overrides: Partial<StravaActivity> = {}): StravaActivity {
   return {
-    id: 1001,
-    athlete: { id: 42 },
+    id: "1001",
+    athlete: { id: "42" },
     name: "Morning Run",
     sport_type: "Run",
     start_date: "2026-09-01T06:30:00Z",

@@ -17,9 +17,9 @@ describe("createStravaTokenService", () => {
   async function linkAccount(tokenExpiresAt: Date) {
     await repositories.accounts.createWithUser(
       { displayName: "Ada", avatarUrl: null },
-      { athleteId: 42, accessTokenEncrypted: "enc(access)", refreshTokenEncrypted: "enc(refresh)", tokenExpiresAt },
+      { athleteId: "42", accessTokenEncrypted: "enc(access)", refreshTokenEncrypted: "enc(refresh)", tokenExpiresAt },
     );
-    return (await repositories.accounts.findByAthleteId(42))!;
+    return (await repositories.accounts.findByAthleteId("42"))!;
   }
 
   beforeEach(() => {
@@ -53,7 +53,7 @@ describe("createStravaTokenService", () => {
     await expect(service.getValidAccessToken(account)).resolves.toBe("refreshed-access");
 
     expect(strava.refreshAccessToken).toHaveBeenCalledWith("refresh");
-    expect(await repositories.accounts.findByAthleteId(42)).toMatchObject({
+    expect(await repositories.accounts.findByAthleteId("42")).toMatchObject({
       accessTokenEncrypted: "enc(refreshed-access)",
       refreshTokenEncrypted: "enc(refreshed-refresh)",
     });

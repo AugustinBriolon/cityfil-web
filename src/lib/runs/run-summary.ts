@@ -1,6 +1,7 @@
 /** Client-safe view of a run: no user ids, no tokens. */
 export type RunSummary = {
-  id: number;
+  /** Strava activity id as a decimal string (64-bit). */
+  id: string;
   name: string;
   startDate: string;
   distanceMeters: number;

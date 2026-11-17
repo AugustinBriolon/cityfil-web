@@ -6,11 +6,11 @@ import type { UserRepository } from "@/server/repositories/user-repository";
 /** In-memory stand-ins mirroring the Postgres repositories, cascade deletes included. */
 export function createInMemoryRepositories() {
   const userRows = new Map<string, User>();
-  const accountRows = new Map<number, StravaAccount>();
-  const activityRows = new Map<number, Activity>();
+  const accountRows = new Map<string, StravaAccount>();
+  const activityRows = new Map<string, Activity>();
   let nextUserNumber = 1;
   // Mirrors the row lock of rotateTokens: one rotation per athlete at a time.
-  const rotationQueues = new Map<number, Promise<unknown>>();
+  const rotationQueues = new Map<string, Promise<unknown>>();
 
   const users: UserRepository = {
     async findById(userId) {

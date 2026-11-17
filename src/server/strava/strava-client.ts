@@ -1,11 +1,13 @@
 import { z } from "zod";
 
 import {
+  parseStravaJson,
   stravaActivitySchema,
   stravaAuthorizationTokenResponseSchema,
   stravaTokenResponseSchema,
   stravaUploadSchema,
   type StravaActivity,
+  type StravaId,
   type StravaAuthorizationTokenResponse,
   type StravaTokenResponse,
   type StravaUpload,
@@ -66,7 +68,7 @@ export type UploadActivityInput = {
 
 export type StravaClient = {
   listActivities: (accessToken: string, options: ListActivitiesOptions) => Promise<StravaActivity[]>;
-  getActivity: (accessToken: string, activityId: number) => Promise<StravaActivity>;
+  getActivity: (accessToken: string, activityId: StravaId) => Promise<StravaActivity>;
   /** Requires the `activity:write` scope. */
   uploadActivity: (accessToken: string, input: UploadActivityInput) => Promise<StravaUpload>;
   getUpload: (accessToken: string, uploadId: number) => Promise<StravaUpload>;
@@ -95,7 +97,8 @@ export function createStravaClient({
       const details = errorBody.success ? errorBody.data.errors : [];
       throw new StravaApiError(response.status, `Strava request failed: ${response.status} ${url}`, details);
     }
-    return schema.parse(await response.json());
+    // Not response.json(): 64-bit ids must not be rounded to the nearest double.
+    return schema.parse(parseStravaJson(await response.text()));
   }
 
   const authorized = (accessToken: string): RequestInit => ({

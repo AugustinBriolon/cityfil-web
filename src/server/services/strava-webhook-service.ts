@@ -4,14 +4,14 @@ import type { StravaAccountRepository } from "@/server/repositories/strava-accou
 import type { UserRepository } from "@/server/repositories/user-repository";
 import { StravaApiError, type StravaClient } from "@/server/strava/strava-client";
 import { isMappableRun, toActivityRecord } from "@/server/strava/run-activity";
-import type { StravaWebhookEvent } from "@/server/strava/strava-types";
+import type { StravaId, StravaWebhookEvent } from "@/server/strava/strava-types";
 
 import type { StravaTokenService } from "./strava-token-service";
 
 export type StravaWebhookService = {
   handleEvent: (event: StravaWebhookEvent) => Promise<void>;
   /** Re-reads one activity from Strava and imports, updates or removes it. */
-  reconcileActivity: (athleteId: number, activityId: number) => Promise<void>;
+  reconcileActivity: (athleteId: StravaId, activityId: StravaId) => Promise<void>;
 };
 
 type Dependencies = {
@@ -35,7 +35,7 @@ export function createStravaWebhookService({
   tokens,
   coverage,
 }: Dependencies): StravaWebhookService {
-  async function handleDeauthorization(athleteId: number) {
+  async function handleDeauthorization(athleteId: StravaId) {
     const account = await accounts.findByAthleteId(athleteId);
     if (!account) return;
     if (await tokens.isAuthorizationRevoked(account)) {
@@ -43,7 +43,7 @@ export function createStravaWebhookService({
     }
   }
 
-  async function reconcileActivity(athleteId: number, activityId: number) {
+  async function reconcileActivity(athleteId: StravaId, activityId: StravaId) {
     const account = await accounts.findByAthleteId(athleteId);
     if (!account) return;
 

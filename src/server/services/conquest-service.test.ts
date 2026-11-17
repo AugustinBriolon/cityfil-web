@@ -94,7 +94,7 @@ describe("createConquestService", () => {
     const user = await harness.repositories.accounts.createWithUser(
       { displayName: name, avatarUrl: null },
       {
-        athleteId: harness.repositories.accountRows.size + 1,
+        athleteId: String(harness.repositories.accountRows.size + 1),
         accessTokenEncrypted: "a",
         refreshTokenEncrypted: "r",
         tokenExpiresAt: NOW,

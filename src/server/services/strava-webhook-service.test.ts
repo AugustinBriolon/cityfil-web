@@ -10,7 +10,7 @@ import { createStravaWebhookService } from "./strava-webhook-service";
 function activityEvent(overrides: Partial<StravaWebhookEvent> = {}): StravaWebhookEvent {
   return {
     object_type: "activity",
-    object_id: 1001,
+    object_id: "1001",
     aspect_type: "create",
     owner_id: HARNESS_ATHLETE_ID,
     subscription_id: 1,
@@ -29,23 +29,23 @@ describe("createStravaWebhookService", () => {
   });
 
   it("imports a newly created run", async () => {
-    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: 1001 }));
+    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: "1001" }));
 
     await service.handleEvent(activityEvent());
 
-    expect(harness.activityRows.get(1001)).toMatchObject({ userId: harness.user.id, name: "Morning Run" });
+    expect(harness.activityRows.get("1001")).toMatchObject({ userId: harness.user.id, name: "Morning Run" });
   });
 
   it("matches the imported run against street coverage", async () => {
-    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: 1001 }));
+    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: "1001" }));
 
     await service.handleEvent(activityEvent());
 
-    expect(harness.activityRows.get(1001)?.coverageMatchedAt).toEqual(HARNESS_NOW);
+    expect(harness.activityRows.get("1001")?.coverageMatchedAt).toEqual(HARNESS_NOW);
   });
 
   it("does not fail the webhook when coverage matching errors", async () => {
-    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: 1001 }));
+    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: "1001" }));
     vi.spyOn(harness.coverage, "matchPendingActivities").mockRejectedValueOnce(new Error("postgis down"));
     vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -53,35 +53,35 @@ describe("createStravaWebhookService", () => {
   });
 
   it("removes a run that Strava no longer returns", async () => {
-    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: 1001 }));
+    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: "1001" }));
     await service.handleEvent(activityEvent());
 
     await service.handleEvent(activityEvent({ aspect_type: "delete" }));
 
-    expect(harness.activityRows.has(1001)).toBe(false);
+    expect(harness.activityRows.has("1001")).toBe(false);
   });
 
   it("keeps a run when a forged delete event targets an activity that still exists", async () => {
-    harness.strava.getActivity.mockResolvedValue(harness.buildOwnedActivity({ id: 1001 }));
+    harness.strava.getActivity.mockResolvedValue(harness.buildOwnedActivity({ id: "1001" }));
     await service.handleEvent(activityEvent());
 
     await service.handleEvent(activityEvent({ aspect_type: "delete" }));
 
-    expect(harness.activityRows.has(1001)).toBe(true);
+    expect(harness.activityRows.has("1001")).toBe(true);
   });
 
   it("removes a run whose sport type changed to something else", async () => {
-    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: 1001 }));
+    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: "1001" }));
     await service.handleEvent(activityEvent());
-    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: 1001, sport_type: "Ride" }));
+    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: "1001", sport_type: "Ride" }));
 
     await service.handleEvent(activityEvent({ aspect_type: "update" }));
 
-    expect(harness.activityRows.has(1001)).toBe(false);
+    expect(harness.activityRows.has("1001")).toBe(false);
   });
 
   it("never imports another athlete's public activity", async () => {
-    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ athlete: { id: 999 } }));
+    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ athlete: { id: "999" } }));
 
     await service.handleEvent(activityEvent());
 
@@ -89,7 +89,7 @@ describe("createStravaWebhookService", () => {
   });
 
   it("ignores events for athletes that are not linked", async () => {
-    await service.handleEvent(activityEvent({ owner_id: 12345 }));
+    await service.handleEvent(activityEvent({ owner_id: "12345" }));
     expect(harness.strava.getActivity).not.toHaveBeenCalled();
   });
 

@@ -30,7 +30,7 @@ function encodeRoute(points: Array<[number, number]>) {
 function buildActivity(id: number, lat: number, lon: number): Activity {
   const now = new Date("2026-09-16T12:00:00Z");
   return {
-    stravaActivityId: id,
+    stravaActivityId: String(id),
     userId: "user-1",
     name: `Run ${id}`,
     sportType: "Run",

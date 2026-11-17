@@ -14,6 +14,15 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+/**
+ * Postgres `bigint` read and written as a decimal string. Strava ids become 64-bit in June 2027, beyond what a
+ * JavaScript number holds exactly, and drizzle's `bigint` only offers `number` or `bigint` (not JSON-serializable).
+ */
+const stravaId = customType<{ data: string; driverData: string | number }>({
+  dataType: () => "bigint",
+  fromDriver: (value) => String(value),
+});
+
 type GeometryType = "LineString" | "MultiPolygon";
 
 /** PostGIS geometry in WGS 84. Values are read and written with SQL functions, never as raw column data. */
@@ -47,7 +56,7 @@ export const users = pgTable("users", {
  * (primary key on athlete, unique constraint on user).
  */
 export const stravaAccounts = pgTable("strava_accounts", {
-  athleteId: bigint({ mode: "number" }).primaryKey(),
+  athleteId: stravaId().primaryKey(),
   userId: uuid()
     .notNull()
     .unique()
@@ -64,7 +73,7 @@ export const stravaAccounts = pgTable("strava_accounts", {
 export const activities = pgTable(
   "activities",
   {
-    stravaActivityId: bigint({ mode: "number" }).primaryKey(),
+    stravaActivityId: stravaId().primaryKey(),
     userId: uuid()
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -151,7 +160,7 @@ export const streetSegmentTwins = pgTable(
 export const activityStreetSegments = pgTable(
   "activity_street_segments",
   {
-    activityId: bigint({ mode: "number" })
+    activityId: stravaId()
       .notNull()
       .references(() => activities.stravaActivityId, { onDelete: "cascade" }),
     segmentId: bigint({ mode: "number" })

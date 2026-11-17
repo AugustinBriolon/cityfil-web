@@ -3,7 +3,7 @@ import { MATCH_ACTIVITY_BATCH_SIZE, type CoverageRepository } from "@/server/rep
 
 /** Records which activities were matched, without simulating actual street geometry. */
 export function createInMemoryCoverageRepository(
-  activityRows: Map<number, Activity>,
+  activityRows: Map<string, Activity>,
   now: () => Date = () => new Date(),
 ) {
   const matchCalls: Array<{ userId: string } | undefined> = [];
@@ -46,7 +46,7 @@ export function createInMemoryCoverageRepository(
       return null;
     },
     async listActivityIdsInArea() {
-      return new Set<number>();
+      return new Set<string>();
     },
     async getUncoveredStreets() {
       return { type: "FeatureCollection", features: [] };

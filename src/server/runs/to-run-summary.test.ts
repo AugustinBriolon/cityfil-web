@@ -7,7 +7,7 @@ import { toRunSummary } from "./to-run-summary";
 describe("toRunSummary", () => {
   it("exposes only client-safe fields", () => {
     const activity: Activity = {
-      stravaActivityId: 7,
+      stravaActivityId: "7",
       userId: "user-1",
       name: "Tempo",
       sportType: "Run",
@@ -22,7 +22,7 @@ describe("toRunSummary", () => {
     };
 
     expect(toRunSummary(activity)).toEqual({
-      id: 7,
+      id: "7",
       name: "Tempo",
       startDate: "2026-09-01T06:30:00.000Z",
       distanceMeters: 8_000,

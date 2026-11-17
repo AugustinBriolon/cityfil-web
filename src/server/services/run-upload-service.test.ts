@@ -32,10 +32,10 @@ describe("toRunUploadState", () => {
   });
 
   it("is ready once the activity exists", () => {
-    expect(toRunUploadState({ id: 1, error: null, status: "ready", activity_id: 99 })).toEqual({
+    expect(toRunUploadState({ id: 1, error: null, status: "ready", activity_id: "99" })).toEqual({
       status: "ready",
       uploadId: 1,
-      activityId: 99,
+      activityId: "99",
     });
   });
 
@@ -43,7 +43,7 @@ describe("toRunUploadState", () => {
     const error = "x.gpx duplicate of <a href='/activities/21234316' target='_blank'>activity 21234316</a>";
     expect(toRunUploadState({ id: 1, error, status: "error", activity_id: null })).toMatchObject({
       status: "ready",
-      activityId: 21234316,
+      activityId: "21234316",
     });
   });
 
@@ -56,12 +56,12 @@ describe("toRunUploadState", () => {
 
 describe("createRunUploadService", () => {
   let harness: Awaited<ReturnType<typeof createServiceHarness>>;
-  let importActivity: ReturnType<typeof vi.fn<(athleteId: number, activityId: number) => Promise<void>>>;
+  let importActivity: ReturnType<typeof vi.fn<(athleteId: string, activityId: string) => Promise<void>>>;
   let service: ReturnType<typeof createRunUploadService>;
 
   beforeEach(async () => {
     harness = await createServiceHarness();
-    importActivity = vi.fn<(athleteId: number, activityId: number) => Promise<void>>().mockResolvedValue(undefined);
+    importActivity = vi.fn<(athleteId: string, activityId: string) => Promise<void>>().mockResolvedValue(undefined);
     service = createRunUploadService({ ...harness, importActivity });
   });
 
@@ -76,10 +76,10 @@ describe("createRunUploadService", () => {
   });
 
   it("imports the activity as soon as Strava finished processing", async () => {
-    harness.strava.getUpload.mockResolvedValueOnce({ id: 500, error: null, status: "ready", activity_id: 1234 });
+    harness.strava.getUpload.mockResolvedValueOnce({ id: 500, error: null, status: "ready", activity_id: "1234" });
 
-    await expect(service.getUploadState(harness.user.id, 500)).resolves.toMatchObject({ activityId: 1234 });
-    expect(importActivity).toHaveBeenCalledWith(HARNESS_ATHLETE_ID, 1234);
+    await expect(service.getUploadState(harness.user.id, 500)).resolves.toMatchObject({ activityId: "1234" });
+    expect(importActivity).toHaveBeenCalledWith(HARNESS_ATHLETE_ID, "1234");
   });
 
   it("asks for a Strava reconnection when the write scope is missing", async () => {

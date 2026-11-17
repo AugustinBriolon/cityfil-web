@@ -17,7 +17,7 @@ import type { RunSummary } from "./run-summary";
 
 function buildRun(overrides: Partial<RunSummary> = {}): RunSummary {
   return {
-    id: 1,
+    id: "1",
     name: "Morning Run",
     startDate: "2026-09-01T06:30:00.000Z",
     distanceMeters: 10_000,
@@ -34,14 +34,14 @@ describe("toRunTraces", () => {
 
     expect(traces.features).toHaveLength(1);
     // The feature id (not just properties.id) is what MapLibre's feature-state hover keys on.
-    expect(traces.features[0]!.id).toBe(1);
+    expect(traces.features[0]!.id).toBe("1");
     expect(traces.features[0]!.geometry.coordinates).toEqual([
       [-120.2, 38.5],
       [-120.95, 40.7],
       [-126.453, 43.252],
     ]);
     expect(traces.features[0]!.properties).toEqual({
-      id: 1,
+      id: "1",
       name: "Morning Run",
       startDate: "2026-09-01T06:30:00.000Z",
       distanceMeters: 10_000,
@@ -57,13 +57,13 @@ describe("toRunTraces", () => {
 describe("toRunStartPoints", () => {
   it("places a point at the first position of each trace", () => {
     const startPoints = toRunStartPoints(toRunTraces([buildRun()]));
-    expect(startPoints.features[0]!.id).toBe(1);
+    expect(startPoints.features[0]!.id).toBe("1");
     expect(startPoints.features[0]!.geometry).toEqual({ type: "Point", coordinates: [-120.2, 38.5] });
   });
 });
 
 describe("toDensityTraces", () => {
-  function lineTrace(id: number, coordinates: [number, number][]): RunTraces["features"][number] {
+  function lineTrace(id: string, coordinates: [number, number][]): RunTraces["features"][number] {
     return {
       type: "Feature",
       id,
@@ -89,7 +89,7 @@ describe("toDensityTraces", () => {
     ];
     const traces: RunTraces = {
       type: "FeatureCollection",
-      features: [lineTrace(1, shared), lineTrace(2, shared), lineTrace(3, detour)],
+      features: [lineTrace("1", shared), lineTrace("2", shared), lineTrace("3", detour)],
     };
 
     const density = toDensityTraces(traces, { spacingMeters: 50, cellDegrees: 0.0005 });
@@ -117,7 +117,7 @@ describe("getTracesBounds", () => {
   });
 });
 
-function traceAt(id: number, ...coordinates: [number, number][]): RunTraces["features"][number] {
+function traceAt(id: string, ...coordinates: [number, number][]): RunTraces["features"][number] {
   return {
     type: "Feature",
     id,
@@ -136,19 +136,19 @@ describe("filterTracesByBounds", () => {
   it("keeps only traces that intersect the city bounds", () => {
     const traces: RunTraces = {
       type: "FeatureCollection",
-      features: [traceAt(1, [2.25, 48.92], [2.26, 48.93]), traceAt(2, [2.5, 48.7], [2.51, 48.71])],
+      features: [traceAt("1", [2.25, 48.92], [2.26, 48.93]), traceAt("2", [2.5, 48.7], [2.51, 48.71])],
     };
     const filtered = filterTracesByBounds(traces, [
       [2.2, 48.9],
       [2.3, 48.95],
     ]);
-    expect(filtered.features.map((feature) => feature.id)).toEqual([1]);
+    expect(filtered.features.map((feature) => feature.id)).toEqual(["1"]);
   });
 
   it("returns an empty collection when nothing intersects", () => {
     const traces: RunTraces = {
       type: "FeatureCollection",
-      features: [traceAt(1, [1, 1], [1.1, 1.1])],
+      features: [traceAt("1", [1, 1], [1.1, 1.1])],
     };
     expect(
       filterTracesByBounds(traces, [
@@ -170,12 +170,12 @@ describe("clipTracesToBounds", () => {
       type: "FeatureCollection",
       features: [
         // Starts outside west, crosses the city, exits east — heatmap must not keep the legs.
-        traceAt(1, [2.1, 48.92], [2.25, 48.92], [2.4, 48.92]),
+        traceAt("1", [2.1, 48.92], [2.25, 48.92], [2.4, 48.92]),
       ],
     };
     const clipped = clipTracesToBounds(traces, cityBounds);
     expect(clipped.features).toHaveLength(1);
-    expect(clipped.features[0]!.properties.id).toBe(1);
+    expect(clipped.features[0]!.properties.id).toBe("1");
     const coordinates = clipped.features[0]!.geometry.coordinates;
     expect(coordinates[0]![0]).toBeCloseTo(2.2, 6);
     expect(coordinates[coordinates.length - 1]![0]).toBeCloseTo(2.3, 6);
@@ -185,7 +185,7 @@ describe("clipTracesToBounds", () => {
   it("drops runs that never enter the city", () => {
     const traces: RunTraces = {
       type: "FeatureCollection",
-      features: [traceAt(2, [2.5, 48.7], [2.51, 48.71])],
+      features: [traceAt("2", [2.5, 48.7], [2.51, 48.71])],
     };
     expect(clipTracesToBounds(traces, cityBounds).features).toEqual([]);
   });
@@ -194,7 +194,7 @@ describe("clipTracesToBounds", () => {
 describe("getPrimaryCountryBounds", () => {
   const locateCountry: LocateCountry = ([longitude]) => (longitude < 0 ? "US" : longitude < 100 ? "FR" : null);
 
-  function traceAt(id: number, ...coordinates: [number, number][]): RunTraces["features"][number] {
+  function traceAt(id: string, ...coordinates: [number, number][]): RunTraces["features"][number] {
     return {
       type: "Feature",
       geometry: { type: "LineString", coordinates },
@@ -206,9 +206,9 @@ describe("getPrimaryCountryBounds", () => {
     const traces: RunTraces = {
       type: "FeatureCollection",
       features: [
-        traceAt(1, [2.3, 48.8], [2.35, 48.85]),
-        traceAt(2, [2.2, 48.9], [2.25, 48.95]),
-        traceAt(3, [-74, 40.7], [-73.9, 40.8]),
+        traceAt("1", [2.3, 48.8], [2.35, 48.85]),
+        traceAt("2", [2.2, 48.9], [2.25, 48.95]),
+        traceAt("3", [-74, 40.7], [-73.9, 40.8]),
       ],
     };
 
@@ -219,7 +219,7 @@ describe("getPrimaryCountryBounds", () => {
   });
 
   it("returns null when no trace starts inside a known country", () => {
-    const traces: RunTraces = { type: "FeatureCollection", features: [traceAt(1, [150, -40], [151, -41])] };
+    const traces: RunTraces = { type: "FeatureCollection", features: [traceAt("1", [150, -40], [151, -41])] };
 
     expect(getPrimaryCountryBounds(traces, locateCountry)).toBeNull();
   });

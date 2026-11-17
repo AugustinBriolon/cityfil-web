@@ -2,24 +2,25 @@ import { eq } from "drizzle-orm";
 
 import type { Database } from "@/server/db/client";
 import { stravaAccounts, users, type StravaAccount, type User } from "@/server/db/schema";
+import type { StravaId } from "@/server/strava/strava-types";
 
 export type StravaTokens = Pick<StravaAccount, "accessTokenEncrypted" | "refreshTokenEncrypted" | "tokenExpiresAt">;
 
 export type StravaAccountRepository = {
-  findByAthleteId: (athleteId: number) => Promise<StravaAccount | undefined>;
+  findByAthleteId: (athleteId: StravaId) => Promise<StravaAccount | undefined>;
   findByUserId: (userId: string) => Promise<StravaAccount | undefined>;
   createWithUser: (
     profile: Pick<User, "displayName" | "avatarUrl">,
     account: Pick<StravaAccount, "athleteId"> & StravaTokens,
   ) => Promise<User>;
-  updateTokens: (athleteId: number, tokens: StravaTokens) => Promise<void>;
+  updateTokens: (athleteId: StravaId, tokens: StravaTokens) => Promise<void>;
   /**
    * Locks the account row, hands its current tokens to `rotate` and stores what it returns, so concurrent
    * refreshes run one after another, each with the newest refresh token. Resolves false when the account is gone.
    */
-  rotateTokens: (athleteId: number, rotate: (current: StravaAccount) => Promise<StravaTokens>) => Promise<boolean>;
-  markSynced: (athleteId: number, syncedAt: Date) => Promise<void>;
-  setHistorySyncPage: (athleteId: number, page: number | null) => Promise<void>;
+  rotateTokens: (athleteId: StravaId, rotate: (current: StravaAccount) => Promise<StravaTokens>) => Promise<boolean>;
+  markSynced: (athleteId: StravaId, syncedAt: Date) => Promise<void>;
+  setHistorySyncPage: (athleteId: StravaId, page: number | null) => Promise<void>;
 };
 
 export function createStravaAccountRepository(database: Database): StravaAccountRepository {

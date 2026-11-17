@@ -11,7 +11,7 @@ vi.mock("motion/react", async (importOriginal) => ({
 }));
 
 const run: RunFeatureProperties = {
-  id: 1,
+  id: "1",
   name: "Sunday long run",
   startDate: "2026-09-16T06:30:00.000Z",
   distanceMeters: 18_400,

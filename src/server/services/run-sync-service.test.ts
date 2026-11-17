@@ -15,22 +15,22 @@ describe("createRunSyncService", () => {
 
   it("imports only mappable runs and records the sync time", async () => {
     harness.strava.listActivities.mockResolvedValueOnce([
-      harness.buildOwnedActivity({ id: 1 }),
-      harness.buildOwnedActivity({ id: 2, sport_type: "Ride" }),
-      harness.buildOwnedActivity({ id: 3, sport_type: "TrailRun" }),
+      harness.buildOwnedActivity({ id: "1" }),
+      harness.buildOwnedActivity({ id: "2", sport_type: "Ride" }),
+      harness.buildOwnedActivity({ id: "3", sport_type: "TrailRun" }),
     ]);
 
     await expect(service.syncRuns(harness.user.id)).resolves.toEqual({ syncedRuns: 2, continues: false });
 
-    expect([...harness.activityRows.keys()]).toEqual([1, 3]);
+    expect([...harness.activityRows.keys()]).toEqual(["1", "3"]);
     expect((await harness.accounts.findByAthleteId(HARNESS_ATHLETE_ID))?.lastSyncedAt).toEqual(HARNESS_NOW);
   });
 
   it("returns after the first Strava page on first import so the client can show traces immediately", async () => {
-    const fullPage = Array.from({ length: 200 }, (_, index) => harness.buildOwnedActivity({ id: index + 1 }));
+    const fullPage = Array.from({ length: 200 }, (_, index) => harness.buildOwnedActivity({ id: String(index + 1) }));
     harness.strava.listActivities
       .mockResolvedValueOnce(fullPage)
-      .mockResolvedValueOnce([harness.buildOwnedActivity({ id: 999 })]);
+      .mockResolvedValueOnce([harness.buildOwnedActivity({ id: "999" })]);
 
     await expect(service.syncRuns(harness.user.id)).resolves.toEqual({ syncedRuns: 200, continues: true });
 
@@ -70,15 +70,15 @@ describe("createRunSyncService", () => {
   });
 
   it("matches imported runs against street coverage", async () => {
-    harness.strava.listActivities.mockResolvedValueOnce([harness.buildOwnedActivity({ id: 1 })]);
+    harness.strava.listActivities.mockResolvedValueOnce([harness.buildOwnedActivity({ id: "1" })]);
 
     await service.syncRuns(harness.user.id);
 
-    expect(harness.activityRows.get(1)?.coverageMatchedAt).toEqual(HARNESS_NOW);
+    expect(harness.activityRows.get("1")?.coverageMatchedAt).toEqual(HARNESS_NOW);
   });
 
   it("does not fail the sync when coverage matching errors", async () => {
-    harness.strava.listActivities.mockResolvedValueOnce([harness.buildOwnedActivity({ id: 1 })]);
+    harness.strava.listActivities.mockResolvedValueOnce([harness.buildOwnedActivity({ id: "1" })]);
     vi.spyOn(harness.coverage, "matchPendingActivities").mockRejectedValueOnce(new Error("postgis down"));
     vi.spyOn(console, "error").mockImplementation(() => {});
 

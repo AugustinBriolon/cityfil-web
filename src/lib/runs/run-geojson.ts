@@ -5,7 +5,7 @@ import type { LocateCountry } from "./run-stats";
 import type { RunSummary } from "./run-summary";
 
 export type RunFeatureProperties = {
-  id: number;
+  id: string;
   name: string;
   startDate: string;
   distanceMeters: number;
@@ -108,8 +108,8 @@ export function toDensityTraces(
   const spacingMeters = options.spacingMeters ?? DENSITY_SAMPLE_SPACING_METERS;
   const cellDegrees = options.cellDegrees ?? DENSITY_CELL_DEGREES;
 
-  const runsPerCell = new Map<string, Set<number>>();
-  const sampledRuns: { runId: number; samples: Position[] }[] = [];
+  const runsPerCell = new Map<string, Set<string>>();
+  const sampledRuns: { runId: string; samples: Position[] }[] = [];
 
   for (const trace of traces.features) {
     const runId = trace.properties.id;
@@ -156,7 +156,7 @@ function cellKey(position: Position, cellDegrees: number): string {
   return `${Math.floor(position[0]! / cellDegrees)},${Math.floor(position[1]! / cellDegrees)}`;
 }
 
-function densityAt(from: Position, to: Position, runsPerCell: Map<string, Set<number>>, cellDegrees: number): number {
+function densityAt(from: Position, to: Position, runsPerCell: Map<string, Set<string>>, cellDegrees: number): number {
   const midpoint: Position = [(from[0]! + to[0]!) / 2, (from[1]! + to[1]!) / 2];
   return runsPerCell.get(cellKey(midpoint, cellDegrees))?.size ?? 1;
 }
@@ -278,7 +278,7 @@ export function clipTracesToBounds(traces: RunTraces, bounds: LngLatBounds): Run
       features.push({
         type: "Feature",
         // Unique MapLibre feature id; properties.id stays the Strava run for density counting.
-        id: Number(trace.properties.id) * 1_000 + partIndex,
+        id: `${trace.properties.id}:${partIndex}`,
         geometry: { type: "LineString", coordinates },
         properties: trace.properties,
       });

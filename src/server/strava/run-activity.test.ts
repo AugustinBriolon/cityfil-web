@@ -21,7 +21,7 @@ describe("isMappableRun", () => {
 describe("toActivityRecord", () => {
   it("maps a Strava activity to a database record owned by the user", () => {
     expect(toActivityRecord(buildStravaActivity(), "user-1")).toEqual({
-      stravaActivityId: 1001,
+      stravaActivityId: "1001",
       userId: "user-1",
       name: "Morning Run",
       sportType: "Run",

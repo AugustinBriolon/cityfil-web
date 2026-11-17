@@ -8,7 +8,7 @@ import { createAccountLinkingService } from "./account-linking-service";
 import { createStravaTokenService } from "./strava-token-service";
 
 const signIn = {
-  athleteId: 42,
+  athleteId: "42",
   displayName: "Ada Lovelace",
   avatarUrl: "https://cdn.strava/ada.jpg",
   tokens: { accessToken: "access-1", refreshToken: "refresh-1", expiresAtEpochSeconds: 1_800_000_000 },
@@ -33,7 +33,7 @@ describe("createAccountLinkingService", () => {
     const userId = await service.linkStravaAthlete(signIn);
 
     expect(await repositories.users.findById(userId)).toMatchObject({ displayName: "Ada Lovelace" });
-    expect(await repositories.accounts.findByAthleteId(42)).toMatchObject({
+    expect(await repositories.accounts.findByAthleteId("42")).toMatchObject({
       userId,
       accessTokenEncrypted: "enc(access-1)",
       refreshTokenEncrypted: "enc(refresh-1)",
@@ -51,12 +51,12 @@ describe("createAccountLinkingService", () => {
     expect(secondUserId).toBe(firstUserId);
     expect(repositories.userRows.size).toBe(1);
     expect(await repositories.users.findById(firstUserId)).toMatchObject({ displayName: "Ada King" });
-    expect(await repositories.accounts.findByAthleteId(42)).toMatchObject({ accessTokenEncrypted: "enc(access-2)" });
+    expect(await repositories.accounts.findByAthleteId("42")).toMatchObject({ accessTokenEncrypted: "enc(access-2)" });
   });
 
   it("creates distinct users for distinct athletes", async () => {
     const adaId = await service.linkStravaAthlete(signIn);
-    const graceId = await service.linkStravaAthlete({ ...signIn, athleteId: 7, displayName: "Grace Hopper" });
+    const graceId = await service.linkStravaAthlete({ ...signIn, athleteId: "7", displayName: "Grace Hopper" });
     expect(graceId).not.toBe(adaId);
   });
 });

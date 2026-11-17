@@ -33,7 +33,7 @@ export type CoverageRepository = {
   listCityCoverage: (userId: string) => Promise<CityCoverage[]>;
   getCoveredStreets: (userId: string) => Promise<CoveredStreets>;
   /** Strava ids of the athlete's runs whose trace touches the city boundary (cross-city runs included). */
-  listActivityIdsInArea: (userId: string, areaId: number) => Promise<Set<number>>;
+  listActivityIdsInArea: (userId: string, areaId: number) => Promise<Set<string>>;
   /** Still-uncovered street geometry for one city (merged), for conquest map layers. */
   getUncoveredStreets: (userId: string, areaId: number) => Promise<CoveredStreets>;
   /** Centroid of still-uncovered street geometry — a practical “start here” for the next run. */
@@ -387,7 +387,7 @@ export function createCoverageRepository(
           AND activities.summary_polyline IS NOT NULL
           AND ST_Intersects(ST_LineFromEncodedPolyline(activities.summary_polyline), city.boundary)
       `);
-      return new Set(rows.map((row) => Number(row.id)));
+      return new Set(rows.map((row) => String(row.id)));
     },
 
     async getUncoveredStreets(userId, areaId) {

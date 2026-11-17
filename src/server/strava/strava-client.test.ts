@@ -110,13 +110,33 @@ describe("createStravaClient", () => {
       jsonResponse({ id: 77, error: null, status: "Your activity is ready.", activity_id: 1234 }),
     );
 
-    await expect(client.getUpload("token", 77)).resolves.toMatchObject({ activity_id: 1234 });
+    await expect(client.getUpload("token", 77)).resolves.toMatchObject({ activity_id: "1234" });
     expect(fetchMock.mock.calls[0]![0]).toBe("https://www.strava.com/api/v3/uploads/77");
+  });
+
+  it("keeps 64-bit activity and athlete ids exact", async () => {
+    const bigId = "9223372036854775783";
+    const body = JSON.stringify(buildStravaActivity())
+      .replace('"id":"1001"', `"id":${bigId}`)
+      .replace('"id":"42"', `"id":${bigId}`);
+    const { client } = setup(new Response(body, { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const activity = await client.getActivity("token", bigId);
+
+    expect(activity.id).toBe(bigId);
+    expect(activity.athlete.id).toBe(bigId);
+  });
+
+  it("keeps a 64-bit upload activity_id exact", async () => {
+    const body = '{"id":77,"error":null,"status":"Your activity is ready.","activity_id":9223372036854775783}';
+    const { client } = setup(new Response(body, { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    await expect(client.getUpload("token", 77)).resolves.toMatchObject({ activity_id: "9223372036854775783" });
   });
 
   it("raises a typed error for rate limiting", async () => {
     const { client } = setup(jsonResponse({ message: "Rate Limit Exceeded" }, 429));
-    const error = await client.getActivity("token", 1).catch((caught: unknown) => caught);
+    const error = await client.getActivity("token", "1").catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(StravaApiError);
     expect((error as StravaApiError).isRateLimited).toBe(true);
   });
@@ -149,19 +169,19 @@ describe("createStravaClient", () => {
       ),
     );
 
-    const error = (await client.getActivity("token", 1).catch((caught) => caught)) as StravaApiError;
+    const error = (await client.getActivity("token", "1").catch((caught) => caught)) as StravaApiError;
 
     expect(error.isMissingPermission).toBe(true);
   });
 
   it("tolerates error responses without a JSON body", async () => {
     const { client } = setup(new Response("Bad Gateway", { status: 502 }));
-    const error = (await client.getActivity("token", 1).catch((caught) => caught)) as StravaApiError;
+    const error = (await client.getActivity("token", "1").catch((caught) => caught)) as StravaApiError;
     expect(error).toMatchObject({ status: 502, details: [] });
   });
 
   it("rejects payloads that do not match the expected shape", async () => {
     const { client } = setup(jsonResponse({ unexpected: true }));
-    await expect(client.getActivity("token", 1)).rejects.toThrow();
+    await expect(client.getActivity("token", "1")).rejects.toThrow();
   });
 });

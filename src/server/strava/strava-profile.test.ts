@@ -6,23 +6,31 @@ describe("toAthleteIdentity", () => {
   it("builds the identity from a Strava athlete", () => {
     expect(
       toAthleteIdentity({ id: 42, firstname: "Ada", lastname: "Lovelace", profile: "https://cdn.strava/ada.jpg" }),
-    ).toEqual({ athleteId: 42, displayName: "Ada Lovelace", avatarUrl: "https://cdn.strava/ada.jpg" });
+    ).toEqual({ athleteId: "42", displayName: "Ada Lovelace", avatarUrl: "https://cdn.strava/ada.jpg" });
   });
 
   it("uses the first candidate that is a valid athlete", () => {
     const tokenResponseAthlete = { id: 42, firstname: "Ada" };
     const failedProfileRequest = { message: "Authorization Error", errors: [] };
 
-    expect(toAthleteIdentity(failedProfileRequest, tokenResponseAthlete).athleteId).toBe(42);
-    expect(toAthleteIdentity(tokenResponseAthlete, { id: 7 }).athleteId).toBe(42);
+    expect(toAthleteIdentity(failedProfileRequest, tokenResponseAthlete).athleteId).toBe("42");
+    expect(toAthleteIdentity(tokenResponseAthlete, { id: 7 }).athleteId).toBe("42");
   });
 
   it("skips a missing token response athlete and falls back to the profile", () => {
-    expect(toAthleteIdentity(undefined, { id: "42", firstname: "Ada" }).athleteId).toBe(42);
+    expect(toAthleteIdentity(undefined, { id: "42", firstname: "Ada" }).athleteId).toBe("42");
   });
 
   it("ignores Strava's relative placeholder avatar", () => {
     expect(toAthleteIdentity({ id: 1, firstname: "Ada", profile: "avatar/athlete/large.png" }).avatarUrl).toBeNull();
+  });
+
+  it("prefers id_str, since Auth.js may already have rounded a 64-bit id", () => {
+    const rounded = Number("9223372036854775783");
+    expect(toAthleteIdentity({ id: rounded, id_str: "9223372036854775783", firstname: "Ada" }).athleteId).toBe(
+      "9223372036854775783",
+    );
+    expect(toAthleteIdentity({ id: rounded, firstname: "Ada" }, { id: 7 }).athleteId).toBe("7");
   });
 
   it("falls back to a generic name when the athlete has none", () => {

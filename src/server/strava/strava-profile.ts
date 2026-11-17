@@ -1,14 +1,24 @@
 import { z } from "zod";
 
-const stravaAthleteSchema = z.object({
-  id: z.coerce.number().int().positive(),
-  firstname: z.string().nullish(),
-  lastname: z.string().nullish(),
-  profile: z.string().nullish(),
-});
+import { stravaIdSchema, type StravaId } from "./strava-types";
+
+// Auth.js parses Strava's token response with plain JSON.parse before we see it, so a 64-bit `id` may
+// already be rounded there: `id_str` is the exact value and wins whenever Strava sends it.
+const stravaAthleteSchema = z.preprocess(
+  (candidate) =>
+    candidate && typeof candidate === "object" && "id_str" in candidate
+      ? { ...candidate, id: candidate.id_str }
+      : candidate,
+  z.object({
+    id: stravaIdSchema,
+    firstname: z.string().nullish(),
+    lastname: z.string().nullish(),
+    profile: z.string().nullish(),
+  }),
+);
 
 export type AthleteIdentity = {
-  athleteId: number;
+  athleteId: StravaId;
   displayName: string;
   avatarUrl: string | null;
 };
