@@ -5,15 +5,16 @@ import type { AreaBoundary, AreaImport, AreaStreet, TileBox } from "@/server/rep
 import type { CatalogCityBoundary } from "@/server/repositories/city-catalog-repository";
 
 /**
- * Public Overpass instances, tried in order. The main one rate-limits by IP, and serverless egress IPs are
- * shared: from production it held each request, refused it, and only answered the retry (about 30 s a query).
- * `OVERPASS_URL` goes first when set.
+ * Public Overpass instances, tried in order; `OVERPASS_URL` goes first when set. Measured on 2026-11-21:
+ * the OSM France instance (planet data) answered a dense 0.1° cell in 5 s and all of Amsterdam in 22 s, while
+ * the main instance made production wait about 30 s per query and then dropped connections (it rate-limits
+ * by IP, and serverless egress IPs are shared), and the other mirrors timed out.
  */
 const DEFAULT_ENDPOINTS = [
   process.env.OVERPASS_URL?.trim(),
-  "https://overpass.private.coffee/api/interpreter",
+  "https://overpass.openstreetmap.fr/api/interpreter",
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
 ].filter((endpoint): endpoint is string => Boolean(endpoint));
 /** An instance that holds a request longer than this is treated as busy. */
 const REQUEST_TIMEOUT_MS = 45_000;
