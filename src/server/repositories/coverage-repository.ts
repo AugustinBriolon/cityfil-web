@@ -301,6 +301,7 @@ export function createCoverageRepository(
         south: number | null;
         east: number | null;
         north: number | null;
+        import_progress: number | null;
       }>(sql`
         WITH shares AS (
           ${segmentSharesForUser(userId)}
@@ -332,7 +333,12 @@ export function createCoverageRepository(
                ST_XMin(coalesce(area.boundary, catalog.boundary))::float8 AS west,
                ST_YMin(coalesce(area.boundary, catalog.boundary))::float8 AS south,
                ST_XMax(coalesce(area.boundary, catalog.boundary))::float8 AS east,
-               ST_YMax(coalesce(area.boundary, catalog.boundary))::float8 AS north
+               ST_YMax(coalesce(area.boundary, catalog.boundary))::float8 AS north,
+               (
+                 SELECT (count(*) FILTER (WHERE tile.status = 'done'))::float8 / nullif(count(*), 0)
+                 FROM city_import_tiles AS tile
+                 WHERE tile.osm_relation_id = user_cities.osm_relation_id
+               ) AS import_progress
         FROM user_cities
         LEFT JOIN areas AS area ON area.osm_relation_id = user_cities.osm_relation_id
         LEFT JOIN city_catalog AS catalog ON catalog.osm_relation_id = user_cities.osm_relation_id
@@ -351,6 +357,7 @@ export function createCoverageRepository(
         coveredMeters: row.covered_meters,
         strictCoveredMeters: row.strict_covered_meters,
         totalMeters: row.total_meters,
+        importProgress: row.import_progress,
         bounds:
           row.west == null || row.south == null || row.east == null || row.north == null
             ? null

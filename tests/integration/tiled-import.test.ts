@@ -170,6 +170,7 @@ describe("tiled city import", () => {
     // Streets the runner covered are known already; the percentage waits for the whole city.
     expect(city!.status).toBe("pending");
     expect(city!.coveredMeters).toBeGreaterThan(500);
+    expect(city!.importProgress).toBeCloseTo(1 / 3, 5);
     expect(await areas.hasStreetsImported(CITY)).toBe(false);
     expect(await importQueue.hasWorkForUser(runner.id)).toBe(true);
 
@@ -181,6 +182,7 @@ describe("tiled city import", () => {
 
     const [ready] = await coverage.listCityCoverage(runner.id);
     expect(ready!.status).toBe("ready");
+    expect(ready!.importProgress).toBeNull();
     expect(ready!.coveredMeters).toBeCloseTo(city!.coveredMeters, 0);
   });
 

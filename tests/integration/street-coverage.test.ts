@@ -342,6 +342,7 @@ describe("street coverage in PostGIS", () => {
           strictCoveredMeters: 0,
           totalMeters: 0,
           bounds: null,
+          importProgress: null,
         },
       ]);
     });

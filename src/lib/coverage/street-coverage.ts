@@ -24,6 +24,8 @@ export type CityCoverage = {
   strictCoveredMeters: number;
   totalMeters: number;
   bounds: LngLatBounds | null;
+  /** Share (0–1) of the city's street import done so far; null when ready or not started. */
+  importProgress?: number | null;
 };
 
 export type CoveredStreets = FeatureCollection<LineString | MultiLineString, { areaId: number; kind?: "route" }>;

@@ -44,6 +44,7 @@ export async function GET(request: Request) {
       coveredMeters: city.coveredMeters,
       totalMeters: city.totalMeters,
       bounds: city.bounds,
+      importProgress: city.importProgress ?? null,
     })),
   });
 }
