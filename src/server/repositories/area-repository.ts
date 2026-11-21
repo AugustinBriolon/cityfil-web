@@ -26,15 +26,16 @@ export type AreaBoundary = {
 export type AreaImport = AreaBoundary & { streets: AreaStreet[] };
 
 /**
- * Side of an import tile. About 4.4 km north-south: one Overpass answer and one PostGIS split stay small
- * in the densest city centre, while a large city is still only a few dozen requests.
+ * Side of an import tile, about 11 km north-south. Public Overpass instances make each request wait for a
+ * slot (about 30 s from shared serverless IPs), whatever its size: few large cells beat many small ones.
+ * Each cell stores the size it was planned with, so this can change while a city is half imported.
  */
-export const IMPORT_TILE_DEGREES = 0.04;
+export const IMPORT_TILE_DEGREES = 0.1;
 
 export type TileBox = { west: number; south: number; east: number; north: number };
 export type ImportTile = { x: number; y: number; priority: number; box: TileBox };
 
-export function tileBox(x: number, y: number, degrees: number = IMPORT_TILE_DEGREES): TileBox {
+export function tileBox(x: number, y: number, degrees: number): TileBox {
   return { west: x * degrees, south: y * degrees, east: (x + 1) * degrees, north: (y + 1) * degrees };
 }
 
@@ -56,7 +57,7 @@ export type AreaRepository = {
   /** The next cell to import (runners' cells first), or null when every cell is done. */
   nextImportTile: (osmRelationId: number) => Promise<ImportTile | null>;
   /** Clips the streets to the cell and the boundary, splits them, and marks the cell done; all or nothing. */
-  importTile: (osmRelationId: number, tile: ImportTile, streets: AreaStreet[]) => Promise<number>;
+  importTile: (osmRelationId: number, tile: ImportTile, streets: AreaStreet[], fetchMs?: number) => Promise<number>;
   /** Pairs twin carriageways, stores the city's street length (it becomes "ready") and drops the grid. */
   finishTiledImport: (osmRelationId: number) => Promise<AreaImportResult>;
   /** Recomputes the twin carriageways of a city already imported; returns the rows stored (both directions). */
@@ -318,8 +319,8 @@ export function createAreaRepository(
                    floor(ST_YMax(city.boundary) / ${tileDegrees}::float8)::int
                  ) AS y
           )
-          INSERT INTO city_import_tiles (osm_relation_id, tile_x, tile_y, priority)
-          SELECT ${id}, cell.x, cell.y,
+          INSERT INTO city_import_tiles (osm_relation_id, tile_x, tile_y, tile_degrees, priority)
+          SELECT ${id}, cell.x, cell.y, ${tileDegrees}::float8,
                  (SELECT count(*)::int FROM run WHERE run.path && cell.box AND ST_Intersects(run.path, cell.box))
           FROM cell, city
           -- Sharing an edge with the city is not being in it.
@@ -331,8 +332,13 @@ export function createAreaRepository(
       });
     },
     async nextImportTile(osmRelationId) {
-      const [row] = await database.execute<{ tile_x: number; tile_y: number; priority: number }>(sql`
-        SELECT tile_x, tile_y, priority FROM city_import_tiles
+      const [row] = await database.execute<{
+        tile_x: number;
+        tile_y: number;
+        priority: number;
+        tile_degrees: number;
+      }>(sql`
+        SELECT tile_x, tile_y, priority, tile_degrees FROM city_import_tiles
         WHERE osm_relation_id = ${osmRelationId} AND status = 'pending'
         ORDER BY priority DESC, tile_y, tile_x
         LIMIT 1
@@ -342,14 +348,14 @@ export function createAreaRepository(
         x: row.tile_x,
         y: row.tile_y,
         priority: row.priority,
-        box: tileBox(row.tile_x, row.tile_y, tileDegrees),
+        box: tileBox(row.tile_x, row.tile_y, row.tile_degrees),
       };
     },
-    async importTile(osmRelationId, tile, streets) {
+    async importTile(osmRelationId, tile, streets, fetchMs) {
       return database.transaction(async (transaction) => {
         // The row lock makes a second importer of the same cell wait, then find it done and insert nothing.
         const claimed = await transaction.execute(sql`
-          UPDATE city_import_tiles SET status = 'done', updated_at = now()
+          UPDATE city_import_tiles SET status = 'done', fetch_ms = ${fetchMs ?? null}, updated_at = now()
           WHERE osm_relation_id = ${osmRelationId} AND tile_x = ${tile.x} AND tile_y = ${tile.y} AND status = 'pending'
           RETURNING tile_x
         `);

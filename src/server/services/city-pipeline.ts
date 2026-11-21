@@ -73,18 +73,24 @@ export async function runPipelineHop(hop: PipelineHop) {
       }
       case "cities": {
         const { cityDetection, cityImportQueue, analysisNotify, accounts, coverage } = services;
-        const discovery = await cityDetection.discoverCitiesForUser(hop.userId);
+        // Each step on its own: one that throws must not leave a queued street import with nobody driving it.
+        const attempt = <T>(step: string, run: () => Promise<T>) =>
+          run().catch((error: unknown) => {
+            console.error(`Cities hop: ${step} failed`, error);
+            return null;
+          });
+        const discovery = await attempt("discovery", () => cityDetection.discoverCitiesForUser(hop.userId));
         // Discovery already rematches one batch; call again so a hop still advances when discovery
         // finds nothing new but coverage_matched_at rows remain (e.g. after migration 0007).
-        await coverage.matchPendingActivities({ userId: hop.userId }).catch((error: unknown) => console.error(error));
-        await services.conquest.refreshForUser(hop.userId);
+        await attempt("matching", () => coverage.matchPendingActivities({ userId: hop.userId }));
+        await attempt("conquest", () => services.conquest.refreshForUser(hop.userId));
         const [stillMatching, importWaiting, importRunning] = await Promise.all([
           coverage.hasPendingMatch({ userId: hop.userId }),
           cityImportQueue.hasWorkForUser(hop.userId),
           cityImportQueue.hasImportRunning(),
         ]);
         const plan = planAfterCitiesHop({
-          discoveryContinues: discovery.continues,
+          discoveryContinues: discovery?.continues ?? false,
           stillMatching,
           importWaiting,
           importRunning,

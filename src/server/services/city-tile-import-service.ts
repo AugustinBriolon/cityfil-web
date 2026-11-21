@@ -29,6 +29,7 @@ type Dependencies = {
   >;
   coverage: Pick<CoverageRepository, "markActivitiesPendingInBox" | "matchPendingActivities">;
   wait?: (milliseconds: number) => Promise<void>;
+  now?: () => number;
 };
 
 /**
@@ -42,6 +43,7 @@ export function createCityTileImportService({
   areas,
   coverage,
   wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  now = Date.now,
 }: Dependencies): CityTileImportService {
   return {
     async advance(osmRelationId, shouldStop) {
@@ -54,7 +56,9 @@ export function createCityTileImportService({
         const tile = await areas.nextImportTile(osmRelationId);
         if (!tile) break;
 
-        await areas.importTile(osmRelationId, tile, await overpass.fetchStreetsInBox(tile.box));
+        const asked = now();
+        const streets = await overpass.fetchStreetsInBox(tile.box);
+        await areas.importTile(osmRelationId, tile, streets, Math.round(now() - asked));
         tilesImported += 1;
         // Runs matched before this cell arrived found no street here.
         const marked = await coverage.markActivitiesPendingInBox(osmRelationId, tile.box);

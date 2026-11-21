@@ -228,6 +228,10 @@ export const cityImportTiles = pgTable(
     tileY: integer().notNull(),
     status: text().notNull().default("pending"),
     priority: integer().notNull().default(0),
+    /** Side of this cell: `tileX * tileDegrees` is its western edge. */
+    tileDegrees: doublePrecision().notNull().default(0.04),
+    /** How long Overpass took to answer for this cell. */
+    fetchMs: integer(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.osmRelationId, table.tileX, table.tileY] })],

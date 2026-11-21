@@ -37,7 +37,14 @@ so the whole background chain of a sync shared one time limit.
 - Import time still grows with the city, but no step does: any city completes, in as many hops as it needs.
 - Streets are also cut at cell edges, so segment boundaries differ slightly from a whole-city import; total length
   is the same.
-- A street lying exactly on a cell edge could be stored by both cells. Cell edges are multiples of 0.04°, so this
+- A street lying exactly on a cell edge could be stored by both cells. Cell edges are multiples of the cell size, so this
   is not worth the bookkeeping to prevent.
 - Not measured against the public Overpass instance from CI or the development container (unreachable there):
   cell size and time budget are estimates to tune from production logs.
+
+## First production import (2026-11-21)
+
+Public Overpass instances made every request wait about 30 s for a slot from Vercel's shared IPs, whatever its
+size, and the main one dropped connections outright. Cells grew from 0.04° to 0.1° (fewer requests), each cell
+stores its own size and how long its fetch took (`tile_degrees`, `fetch_ms`), and the client falls back across
+instances. A step of the cities hop that throws no longer stops the chain.

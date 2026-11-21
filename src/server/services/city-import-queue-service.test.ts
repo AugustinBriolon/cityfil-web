@@ -8,7 +8,7 @@ import { createCityImportQueueService } from "./city-import-queue-service";
 
 const COLOMBES = { osmRelationId: 91738, name: "Colombes", adminLevel: 8, boundaryLines: [] };
 
-const tile = (x: number, priority = 0): ImportTile => ({ x, y: 0, priority, box: tileBox(x, 0) });
+const tile = (x: number, priority = 0): ImportTile => ({ x, y: 0, priority, box: tileBox(x, 0, 0.04) });
 
 /** An in-memory city whose grid is `tiles`; `planned` says whether an earlier hop already planned it. */
 function harness({

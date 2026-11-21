@@ -45,7 +45,7 @@ export function createCityImportQueueService({
   now = Date.now,
   wait,
 }: Dependencies): CityImportQueueService {
-  const tileImport = createCityTileImportService({ areas, overpass, coverage, wait });
+  const tileImport = createCityTileImportService({ areas, overpass, coverage, wait, now });
 
   return {
     async processNext() {

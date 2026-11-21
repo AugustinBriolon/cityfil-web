@@ -11,12 +11,12 @@ import type { CatalogCityBoundary } from "@/server/repositories/city-catalog-rep
  */
 const DEFAULT_ENDPOINTS = [
   process.env.OVERPASS_URL?.trim(),
-  "https://overpass-api.de/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
 ].filter((endpoint): endpoint is string => Boolean(endpoint));
 /** An instance that holds a request longer than this is treated as busy. */
-const REQUEST_TIMEOUT_MS = 40_000;
+const REQUEST_TIMEOUT_MS = 45_000;
 // Overpass usage policy asks clients to identify themselves.
 const USER_AGENT = "Cityfil/0.1 (+https://cityfil.run)";
 const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
@@ -113,7 +113,7 @@ out geom;`;
 }
 
 export function buildStreetsInBoxQuery(box: TileBox): string {
-  return `[out:json][timeout:25][bbox:${box.south},${box.west},${box.north},${box.east}];
+  return `[out:json][timeout:40][bbox:${box.south},${box.west},${box.north},${box.east}];
 way${STREET_FILTER};
 out tags geom;`;
 }
