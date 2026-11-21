@@ -117,6 +117,7 @@ describe("createCityDetectionService", () => {
       fail: vi.fn(),
       hasWork: vi.fn(async () => false),
       hasWorkForUser: vi.fn(async () => false),
+      hasImportRunning: vi.fn(async () => false),
     };
     coverage = {
       matchPendingActivities: vi.fn(async () => 0),

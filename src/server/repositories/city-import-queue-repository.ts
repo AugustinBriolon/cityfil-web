@@ -19,6 +19,8 @@ export type CityImportQueueRepository = {
   hasWork: () => Promise<boolean>;
   /** Whether this runner still has cities waiting for street import. */
   hasWorkForUser: (userId: string) => Promise<boolean>;
+  /** Whether a street import is running now (claimed recently enough not to count as stale). */
+  hasImportRunning: () => Promise<boolean>;
 };
 
 const MAX_ATTEMPTS = 3;
@@ -117,6 +119,15 @@ export function createCityImportQueueRepository(database: Database): CityImportQ
         WHERE status = 'pending' OR (status = 'failed' AND attempts < ${MAX_ATTEMPTS})
       `);
       return (row?.remaining ?? 0) > 0;
+    },
+    async hasImportRunning() {
+      const [row] = await database.execute<{ running: boolean }>(sql`
+        SELECT EXISTS(
+          SELECT 1 FROM city_import_queue
+          WHERE status = 'importing' AND updated_at >= now() - ${STALE_IMPORTING_INTERVAL}
+        ) AS running
+      `);
+      return Boolean(row?.running);
     },
     async hasWorkForUser(userId) {
       const [row] = await database.execute<{ remaining: number }>(sql`
