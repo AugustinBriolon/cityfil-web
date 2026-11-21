@@ -4,12 +4,25 @@ import { countsForCoverage, PLAN_HIGHWAY_TYPES } from "@/server/coverage/coverag
 import type { AreaBoundary, AreaImport, AreaStreet, TileBox } from "@/server/repositories/area-repository";
 import type { CatalogCityBoundary } from "@/server/repositories/city-catalog-repository";
 
-const DEFAULT_ENDPOINT = process.env.OVERPASS_URL?.trim() || "https://overpass-api.de/api/interpreter";
+/**
+ * Public Overpass instances, tried in order. The main one rate-limits by IP, and serverless egress IPs are
+ * shared: from production it held each request, refused it, and only answered the retry (about 30 s a query).
+ * `OVERPASS_URL` goes first when set.
+ */
+const DEFAULT_ENDPOINTS = [
+  process.env.OVERPASS_URL?.trim(),
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+].filter((endpoint): endpoint is string => Boolean(endpoint));
+/** An instance that holds a request longer than this is treated as busy. */
+const REQUEST_TIMEOUT_MS = 40_000;
 // Overpass usage policy asks clients to identify themselves.
 const USER_AGENT = "Cityfil/0.1 (+https://cityfil.run)";
 const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 20_000;
+/** Rounds through every instance before giving up. */
+const MAX_ROUNDS = 2;
+const RETRY_DELAY_MS = 10_000;
 
 /** OSM relation for the Île-de-France region (admin_level 4). */
 export const ILE_DE_FRANCE_RELATION_ID = 8649;
@@ -78,7 +91,7 @@ export type OverpassClient = {
 
 type OverpassClientConfig = {
   fetch?: typeof fetch;
-  endpoint?: string;
+  endpoints?: string[];
   wait?: (milliseconds: number) => Promise<void>;
 };
 
@@ -186,23 +199,54 @@ function toAreaImport(osmRelationId: number, response: CityFetchResponse): AreaI
 
 export function createOverpassClient({
   fetch: fetchImpl = fetch,
-  endpoint = DEFAULT_ENDPOINT,
+  endpoints = DEFAULT_ENDPOINTS,
   wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 }: OverpassClientConfig = {}): OverpassClient {
-  async function query(body: string): Promise<unknown> {
-    for (let attempt = 1; ; attempt++) {
-      const response = await fetchImpl(endpoint, {
+  /** The instance that answered last: a refused instance is not asked first again. */
+  let preferred = 0;
+
+  /** The parsed answer, or the reason this instance should be skipped; throws on a request Overpass rejects. */
+  async function ask(
+    endpoint: string,
+    body: string,
+  ): Promise<{ ok: true; json: unknown } | { ok: false; why: string }> {
+    let response: Response;
+    try {
+      response = await fetchImpl(endpoint, {
         method: "POST",
         headers: { "User-Agent": USER_AGENT },
         body: new URLSearchParams({ data: body }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      if (response.ok) return response.json();
-      // The public Overpass instance sheds load with these statuses; waiting usually helps.
-      if (!RETRYABLE_STATUSES.has(response.status) || attempt === MAX_ATTEMPTS) {
-        throw new Error(`Overpass request failed: ${response.status}`);
-      }
-      await wait(RETRY_DELAY_MS * attempt);
+    } catch (error) {
+      return { ok: false, why: error instanceof Error ? error.name : "network error" };
     }
+    if (RETRYABLE_STATUSES.has(response.status)) return { ok: false, why: String(response.status) };
+    if (!response.ok) throw new Error(`Overpass request failed: ${response.status}`);
+    try {
+      return { ok: true, json: await response.json() };
+    } catch {
+      // A busy instance can answer 200 with an HTML error page.
+      return { ok: false, why: "unreadable answer" };
+    }
+  }
+
+  async function query(body: string): Promise<unknown> {
+    let why = "no instance";
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      for (let offset = 0; offset < endpoints.length; offset++) {
+        const index = (preferred + offset) % endpoints.length;
+        const answer = await ask(endpoints[index]!, body);
+        if (answer.ok) {
+          preferred = index;
+          return answer.json;
+        }
+        why = answer.why;
+      }
+      // Every instance is shedding load; waiting usually helps.
+      if (round < MAX_ROUNDS) await wait(RETRY_DELAY_MS * round);
+    }
+    throw new Error(`Overpass request failed: ${why}`);
   }
 
   return {

@@ -47,7 +47,11 @@ function setup(...responses: Response[]) {
   const fetchMock = vi.fn<typeof fetch>();
   for (const response of responses) fetchMock.mockResolvedValueOnce(response);
   const wait = vi.fn<(milliseconds: number) => Promise<void>>().mockResolvedValue(undefined);
-  return { client: createOverpassClient({ fetch: fetchMock, wait }), fetchMock, wait };
+  return {
+    client: createOverpassClient({ fetch: fetchMock, wait, endpoints: ["https://one.example"] }),
+    fetchMock,
+    wait,
+  };
 }
 
 describe("buildCityQuery", () => {
@@ -197,5 +201,45 @@ describe("tiled fetches", () => {
     const streets = await client.fetchStreetsInBox({ west: 2.2, south: 48.9, east: 2.24, north: 48.94 });
     expect(streets.length).toBeGreaterThan(0);
     expect(streets[0]).toHaveProperty("osmWayId");
+  });
+});
+
+describe("instance fallback", () => {
+  const endpoints = ["https://one.example", "https://two.example"];
+
+  it("moves to the next instance at once when one is busy, and stays there", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("busy", { status: 429 }))
+      .mockImplementation(async () => Response.json(cityResponse));
+    const wait = vi.fn(async () => {});
+    const client = createOverpassClient({ fetch: fetchMock, wait, endpoints });
+
+    await client.fetchBoundary(91775);
+    await client.fetchBoundary(91775);
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([endpoints[0], endpoints[1], endpoints[1]]);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it("treats a network failure and an unreadable answer as a busy instance", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error("socket hang up"))
+      .mockResolvedValueOnce(new Response("<html>busy</html>"))
+      .mockImplementation(async () => Response.json(cityResponse));
+    const wait = vi.fn(async () => {});
+    const client = createOverpassClient({ fetch: fetchMock, wait, endpoints });
+
+    await expect(client.fetchBoundary(91775)).resolves.toMatchObject({ name: "La Garenne-Colombes" });
+    expect(wait).toHaveBeenCalledOnce();
+  });
+
+  it("gives up after every instance refused twice", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response("busy", { status: 504 }));
+    const client = createOverpassClient({ fetch: fetchMock, wait: async () => {}, endpoints });
+
+    await expect(client.fetchBoundary(91775)).rejects.toThrow("Overpass request failed: 504");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });
