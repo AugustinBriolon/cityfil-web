@@ -3,29 +3,37 @@ import type { CityImportQueueRepository } from "@/server/repositories/city-impor
 import type { OverpassClient } from "@/server/osm/overpass-client";
 import type { CoverageRepository } from "@/server/repositories/coverage-repository";
 
-import { createCityImportService } from "./city-import-service";
+import { createCityTileImportService } from "./city-tile-import-service";
 
 export type CityImportQueueResult = {
+  /** The city is complete (false while a large city is still partly imported). */
   imported: boolean;
   cityName: string | null;
   hasMore: boolean;
 };
 
 export type CityImportQueueService = {
-  /** Imports the next queued city into the shared street tables (or skips if another job already did). */
+  /**
+   * Advances the next queued city's street import (or skips it if another job already finished it).
+   * A city too large for the time budget goes back in the queue and resumes on the next call.
+   */
   processNext: () => Promise<CityImportQueueResult>;
   hasWorkForUser: (userId: string) => Promise<boolean>;
   hasImportRunning: () => Promise<boolean>;
+  reviveStalledForUser: (userId: string) => Promise<boolean>;
 };
+
+/** Leaves room, inside the pipeline route's 300 s, for a last cell Overpass retries and the final twin pairing. */
+export const IMPORT_BUDGET_MS = 100_000;
 
 type Dependencies = {
   areas: AreaRepository;
   importQueue: CityImportQueueRepository;
   overpass: OverpassClient;
-  coverage: Pick<
-    CoverageRepository,
-    "markActivitiesPendingForArea" | "markAllActivitiesPending" | "matchPendingActivities"
-  >;
+  coverage: Pick<CoverageRepository, "markActivitiesPendingInBox" | "matchPendingActivities">;
+  budgetMs?: number;
+  now?: () => number;
+  wait?: (milliseconds: number) => Promise<void>;
 };
 
 export function createCityImportQueueService({
@@ -33,8 +41,11 @@ export function createCityImportQueueService({
   importQueue,
   overpass,
   coverage,
+  budgetMs = IMPORT_BUDGET_MS,
+  now = Date.now,
+  wait,
 }: Dependencies): CityImportQueueService {
-  const cityImport = createCityImportService({ areas, overpass, coverage });
+  const tileImport = createCityTileImportService({ areas, overpass, coverage, wait });
 
   return {
     async processNext() {
@@ -49,7 +60,12 @@ export function createCityImportQueueService({
           return { imported: false, cityName: job.name, hasMore: await importQueue.hasWork() };
         }
 
-        await cityImport.importCity(job.osmRelationId);
+        const deadline = now() + budgetMs;
+        const progress = await tileImport.advance(job.osmRelationId, () => now() >= deadline);
+        if (!progress.done) {
+          await importQueue.release(job.osmRelationId);
+          return { imported: false, cityName: job.name, hasMore: true };
+        }
         await importQueue.complete(job.osmRelationId);
         return { imported: true, cityName: job.name, hasMore: await importQueue.hasWork() };
       } catch (error) {
@@ -64,6 +80,9 @@ export function createCityImportQueueService({
     },
     async hasImportRunning() {
       return importQueue.hasImportRunning();
+    },
+    async reviveStalledForUser(userId) {
+      return importQueue.reviveStalledForUser(userId);
     },
   };
 }

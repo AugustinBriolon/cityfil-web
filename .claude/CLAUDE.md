@@ -87,7 +87,10 @@ covered when ≥85% of a segment's length is within 20 m of the run's `summary_p
 user, as a swallowed best-effort step. Its matching query needs `WITH ... AS MATERIALIZED` on the corridor CTEs
 — without it Postgres recomputes each run's buffer once per segment scanned instead of once per run (100x+
 slower at pilot scale; see the ADR). Import or refresh a city with `pnpm osm:import-city <osm-relation-id>`,
-which replaces its segments and re-matches every runner against them. Full GPS streams are never fetched: the
+which replaces its segments and re-matches every runner against them. Cities discovered from a runner's
+runs are imported by the queue one grid cell at a time (ADR 0024): `city_import_tiles`, runners' cells first, the
+city staying "pending" (`street_length_meters = 0`) until the last cell; each background step is its own invocation
+via `/api/internal/pipeline`. Full GPS streams are never fetched: the
 summary polyline is precise enough for street-level matching (see the ADR), so streets inside a runner's Strava
 privacy zone are never credited.
 

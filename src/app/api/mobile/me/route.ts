@@ -5,6 +5,7 @@ import { parseProfileVisibility } from "@/lib/conquest/visibility";
 import { toCoverageShare } from "@/lib/coverage/street-coverage";
 import { isNextResponse, requireMobileUser } from "@/server/mobile/request-auth";
 import { getServices } from "@/server/services";
+import { scheduleCityPipeline } from "@/server/services/city-pipeline";
 
 /** Authenticated snapshot for the mobile home / coverage screens. */
 export async function GET(request: Request) {
@@ -17,6 +18,12 @@ export async function GET(request: Request) {
     services.accounts.findByUserId(userOrError.id),
     services.coverage.hasPendingMatch({ userId: userOrError.id }),
   ]);
+
+  // A street import whose background hop died has nobody driving it: opening the app picks it up again.
+  if (cities.some((city) => city.status !== "ready")) {
+    const stalled = await services.cityImportQueue.reviveStalledForUser(userOrError.id).catch(() => false);
+    if (stalled) scheduleCityPipeline(userOrError.id);
+  }
 
   return NextResponse.json({
     user: {

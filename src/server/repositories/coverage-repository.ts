@@ -11,6 +11,7 @@ import {
 } from "@/lib/coverage/run-plan-route";
 import { COVERAGE_RULES, type CoverageRules } from "@/server/coverage/coverage-rules";
 import type { Database } from "@/server/db/client";
+import type { TileBox } from "@/server/repositories/area-repository";
 
 /** Max runs rematched in one DB transaction — keeps serverless hops under the time budget. */
 export const MATCH_ACTIVITY_BATCH_SIZE = 8;
@@ -30,6 +31,11 @@ export type CoverageRepository = {
    * Must run before `replaceArea` while the old segment rows still exist.
    */
   markActivitiesPendingForArea: (areaId: number) => Promise<void>;
+  /**
+   * Marks the runs of the city's runners that pass through a box, so they rematch against streets just
+   * imported there. Returns how many were marked.
+   */
+  markActivitiesPendingInBox: (areaId: number, box: TileBox) => Promise<number>;
   listCityCoverage: (userId: string) => Promise<CityCoverage[]>;
   getCoveredStreets: (userId: string) => Promise<CoveredStreets>;
   /** Strava ids of the athlete's runs whose trace touches the city boundary (cross-city runs included). */
@@ -261,6 +267,26 @@ export function createCoverageRepository(
           WHERE street_segments.area_id = ${areaId}
         )
       `);
+    },
+
+    async markActivitiesPendingInBox(areaId, box) {
+      // Widened by the matching corridor: a run just outside the box still touches streets inside it.
+      const rows = await database.execute(sql`
+        UPDATE activities
+        SET coverage_matched_at = NULL
+        WHERE coverage_matched_at IS NOT NULL
+          AND user_id IN (SELECT user_id FROM user_cities WHERE osm_relation_id = ${areaId})
+          AND length(summary_polyline) > 0
+          AND ST_Intersects(
+            ST_LineFromEncodedPolyline(summary_polyline),
+            ST_Expand(
+              ST_MakeEnvelope(${box.west}::float8, ${box.south}::float8, ${box.east}::float8, ${box.north}::float8, 4326),
+              0.0005
+            )
+          )
+        RETURNING strava_activity_id
+      `);
+      return rows.length;
     },
 
     async listCityCoverage(userId) {

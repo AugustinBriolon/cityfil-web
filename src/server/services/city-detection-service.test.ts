@@ -95,6 +95,11 @@ describe("createCityDetectionService", () => {
       filterPointsOutsideAreas: vi.fn(async (points) => points),
       rebuildTwins: vi.fn(async () => 0),
       replaceArea: vi.fn(),
+      hasImportTiles: vi.fn(async () => false),
+      startTiledImport: vi.fn(async () => 0),
+      nextImportTile: vi.fn(async () => null),
+      importTile: vi.fn(async () => 0),
+      finishTiledImport: vi.fn(async () => ({ segmentCount: 0, streetLengthMeters: 0 })),
     };
     catalog = {
       listAll: vi.fn(async () => []),
@@ -118,6 +123,8 @@ describe("createCityDetectionService", () => {
       hasWork: vi.fn(async () => false),
       hasWorkForUser: vi.fn(async () => false),
       hasImportRunning: vi.fn(async () => false),
+      release: vi.fn(),
+      reviveStalledForUser: vi.fn(async () => false),
     };
     coverage = {
       matchPendingActivities: vi.fn(async () => 0),

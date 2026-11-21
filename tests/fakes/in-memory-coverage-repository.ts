@@ -36,6 +36,9 @@ export function createInMemoryCoverageRepository(
       // In-memory fake has no segment graph; treat like a full rematch request.
       for (const [id, activity] of activityRows) activityRows.set(id, { ...activity, coverageMatchedAt: null });
     },
+    async markActivitiesPendingInBox() {
+      return 0;
+    },
     async listCityCoverage() {
       return [];
     },

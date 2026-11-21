@@ -15,6 +15,14 @@ export type CityImportQueueRepository = {
   /** Claims the next pending job (or retries a failed one), marking it importing. */
   claimNext: () => Promise<CityImportJob | null>;
   complete: (osmRelationId: number) => Promise<void>;
+  /** Hands a city back after a hop that made progress: next in line again, with its retries restored. */
+  release: (osmRelationId: number) => Promise<void>;
+  /**
+   * Puts this runner's stalled imports back in line and returns whether there were any: a hop that died
+   * leaves a job nobody drives. Atomic, so concurrent callers restart the chain once. A job that used up
+   * its attempts is tried again after a rest.
+   */
+  reviveStalledForUser: (userId: string) => Promise<boolean>;
   fail: (osmRelationId: number, error: string) => Promise<void>;
   hasWork: () => Promise<boolean>;
   /** Whether this runner still has cities waiting for street import. */
@@ -26,6 +34,9 @@ export type CityImportQueueRepository = {
 const MAX_ATTEMPTS = 3;
 /** Reclaim jobs left in `importing` after a serverless timeout (fail never ran). */
 const STALE_IMPORTING_INTERVAL = sql`interval '10 minutes'`;
+/** Longer than any hop can live (the pipeline route's maxDuration): past this, nothing is driving the job. */
+const STALLED_INTERVAL = sql`interval '6 minutes'`;
+const EXHAUSTED_REST_INTERVAL = sql`interval '1 hour'`;
 
 export function createCityImportQueueRepository(database: Database): CityImportQueueRepository {
   return {
@@ -102,6 +113,28 @@ export function createCityImportQueueRepository(database: Database): CityImportQ
 
     async complete(osmRelationId) {
       await database.execute(sql`DELETE FROM city_import_queue WHERE osm_relation_id = ${osmRelationId}`);
+    },
+
+    async release(osmRelationId) {
+      await database.execute(sql`
+        UPDATE city_import_queue
+        SET status = 'pending', attempts = 0, last_error = NULL, updated_at = now()
+        WHERE osm_relation_id = ${osmRelationId}
+      `);
+    },
+
+    async reviveStalledForUser(userId) {
+      const rows = await database.execute(sql`
+        UPDATE city_import_queue AS job
+        SET status = 'pending',
+            attempts = CASE WHEN job.attempts >= ${MAX_ATTEMPTS} THEN 0 ELSE job.attempts END,
+            updated_at = now()
+        WHERE job.osm_relation_id IN (SELECT osm_relation_id FROM user_cities WHERE user_id = ${userId})
+          AND job.updated_at < now() - ${STALLED_INTERVAL}
+          AND (job.attempts < ${MAX_ATTEMPTS} OR job.updated_at < now() - ${EXHAUSTED_REST_INTERVAL})
+        RETURNING job.osm_relation_id
+      `);
+      return rows.length > 0;
     },
 
     async fail(osmRelationId, error) {

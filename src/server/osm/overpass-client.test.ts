@@ -4,6 +4,7 @@ import {
   buildAdminCitiesInDepartmentQuery,
   buildAdminCitiesInRegionQuery,
   buildCityQuery,
+  buildStreetsInBoxQuery,
   createOverpassClient,
 } from "./overpass-client";
 
@@ -173,5 +174,28 @@ describe("createOverpassClient", () => {
       },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(8);
+  });
+});
+
+describe("tiled fetches", () => {
+  it("asks for the streets of one box with the city import's street filter", () => {
+    const query = buildStreetsInBoxQuery({ west: 4.88, south: 52.32, east: 4.92, north: 52.36 });
+    expect(query).toContain("[bbox:52.32,4.88,52.36,4.92]");
+    expect(buildCityQuery(1)).toContain(query.split("\n")[1]!.replace(/^way/, "").replace(/;$/, ""));
+  });
+
+  it("returns the boundary alone, and the streets of a box alone", async () => {
+    const client = createOverpassClient({
+      fetch: vi.fn(async () => Response.json(cityResponse)),
+      wait: async () => {},
+    });
+
+    const boundary = await client.fetchBoundary(91775);
+    expect(boundary).toMatchObject({ osmRelationId: 91775, name: "La Garenne-Colombes", adminLevel: 8 });
+    expect(boundary).not.toHaveProperty("streets");
+
+    const streets = await client.fetchStreetsInBox({ west: 2.2, south: 48.9, east: 2.24, north: 48.94 });
+    expect(streets.length).toBeGreaterThan(0);
+    expect(streets[0]).toHaveProperty("osmWayId");
   });
 });

@@ -19,6 +19,8 @@ describe("createCityImportService", () => {
     const calls: string[] = [];
     const overpass: OverpassClient = {
       fetchCity: vi.fn().mockResolvedValue(city),
+      fetchBoundary: vi.fn(),
+      fetchStreetsInBox: vi.fn(),
       fetchAdminCitiesInRegion: vi.fn(),
     };
     const areas: AreaRepository = {
@@ -31,6 +33,11 @@ describe("createCityImportService", () => {
         calls.push("replaceArea");
         return { segmentCount: 3000, streetLengthMeters: 110_000 };
       }),
+      hasImportTiles: vi.fn(async () => false),
+      startTiledImport: vi.fn(async () => 0),
+      nextImportTile: vi.fn(async () => null),
+      importTile: vi.fn(async () => 0),
+      finishTiledImport: vi.fn(async () => ({ segmentCount: 0, streetLengthMeters: 0 })),
     };
     const coverage: Pick<CoverageRepository, "markActivitiesPendingForArea" | "matchPendingActivities"> = {
       markActivitiesPendingForArea: vi.fn(async (areaId) => {

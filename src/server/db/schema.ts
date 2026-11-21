@@ -215,6 +215,25 @@ export const cityImportQueue = pgTable("city_import_queue", {
 });
 
 /**
+ * Grid cells of a city whose streets are being imported (see `area-repository.ts`). Cells the runners
+ * ran through carry a higher priority and go first; rows are deleted once the city is complete.
+ */
+export const cityImportTiles = pgTable(
+  "city_import_tiles",
+  {
+    osmRelationId: bigint({ mode: "number" })
+      .notNull()
+      .references(() => areas.osmRelationId, { onDelete: "cascade" }),
+    tileX: integer().notNull(),
+    tileY: integer().notNull(),
+    status: text().notNull().default("pending"),
+    priority: integer().notNull().default(0),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.osmRelationId, table.tileX, table.tileY] })],
+);
+
+/**
  * First time a runner reached 100% of a city's streets. Never updated: later runs
  * compete for Keeper / Conqueror without moving Founder.
  */

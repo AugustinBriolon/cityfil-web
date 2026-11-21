@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { countsForCoverage, PLAN_HIGHWAY_TYPES } from "@/server/coverage/coverage-rules";
-import type { AreaImport } from "@/server/repositories/area-repository";
+import type { AreaBoundary, AreaImport, AreaStreet, TileBox } from "@/server/repositories/area-repository";
 import type { CatalogCityBoundary } from "@/server/repositories/city-catalog-repository";
 
 const DEFAULT_ENDPOINT = process.env.OVERPASS_URL?.trim() || "https://overpass-api.de/api/interpreter";
@@ -68,6 +68,10 @@ const catalogFetchResponseSchema = z.object({
 export type OverpassClient = {
   /** Fetches a city boundary relation and the runnable streets inside it. */
   fetchCity: (osmRelationId: number) => Promise<AreaImport>;
+  /** Fetches the boundary relation alone: small whatever the city's size. */
+  fetchBoundary: (osmRelationId: number) => Promise<AreaBoundary>;
+  /** Fetches the runnable streets touching a box, whole (the caller clips them). */
+  fetchStreetsInBox: (box: TileBox) => Promise<AreaStreet[]>;
   /** Fetches admin_level=8 boundaries inside Île-de-France (no streets — catalog seed). */
   fetchAdminCitiesInRegion: (regionRelationId: number) => Promise<CatalogCityBoundary[]>;
 };
@@ -78,13 +82,26 @@ type OverpassClientConfig = {
   wait?: (milliseconds: number) => Promise<void>;
 };
 
+const STREET_FILTER = `["highway"~"^(${PLAN_HIGHWAY_TYPES.join("|")})$"]["area"!="yes"]["access"!~"^(private|no)$"]`;
+
 export function buildCityQuery(osmRelationId: number): string {
-  const highways = PLAN_HIGHWAY_TYPES.join("|");
   return `[out:json][timeout:120];
 rel(id:${osmRelationId})->.city;
 .city out geom;
 .city map_to_area->.cityArea;
-way(area.cityArea)["highway"~"^(${highways})$"]["area"!="yes"]["access"!~"^(private|no)$"];
+way(area.cityArea)${STREET_FILTER};
+out tags geom;`;
+}
+
+export function buildBoundaryQuery(osmRelationId: number): string {
+  return `[out:json][timeout:25];
+rel(id:${osmRelationId});
+out geom;`;
+}
+
+export function buildStreetsInBoxQuery(box: TileBox): string {
+  return `[out:json][timeout:25][bbox:${box.south},${box.west},${box.north},${box.east}];
+way${STREET_FILTER};
 out tags geom;`;
 }
 
@@ -129,7 +146,9 @@ function toCatalogBoundary(element: {
   };
 }
 
-function toAreaImport(osmRelationId: number, response: z.infer<typeof cityFetchResponseSchema>): AreaImport {
+type CityFetchResponse = z.infer<typeof cityFetchResponseSchema>;
+
+function toAreaBoundary(osmRelationId: number, response: CityFetchResponse): AreaBoundary {
   const relation = response.elements.find((element) => element.type === "relation" && element.id === osmRelationId);
   if (relation?.type !== "relation" || relation.tags.boundary !== "administrative") {
     throw new Error(`OSM relation ${osmRelationId} is not an administrative boundary`);
@@ -142,20 +161,27 @@ function toAreaImport(osmRelationId: number, response: z.infer<typeof cityFetchR
     boundaryLines: relation.members.flatMap((member) =>
       member.type === "way" && member.geometry ? [toPositions(member.geometry)] : [],
     ),
-    streets: response.elements.flatMap((element) =>
-      element.type === "way" && element.geometry.length >= 2
-        ? [
-            {
-              osmWayId: element.id,
-              name: element.tags.name ?? null,
-              highway: element.tags.highway ?? "unknown",
-              countsForCoverage: countsForCoverage(element.tags.highway ?? "unknown"),
-              coordinates: toPositions(element.geometry),
-            },
-          ]
-        : [],
-    ),
   };
+}
+
+function toAreaStreets(response: CityFetchResponse): AreaStreet[] {
+  return response.elements.flatMap((element) =>
+    element.type === "way" && element.geometry.length >= 2
+      ? [
+          {
+            osmWayId: element.id,
+            name: element.tags.name ?? null,
+            highway: element.tags.highway ?? "unknown",
+            countsForCoverage: countsForCoverage(element.tags.highway ?? "unknown"),
+            coordinates: toPositions(element.geometry),
+          },
+        ]
+      : [],
+  );
+}
+
+function toAreaImport(osmRelationId: number, response: CityFetchResponse): AreaImport {
+  return { ...toAreaBoundary(osmRelationId, response), streets: toAreaStreets(response) };
 }
 
 export function createOverpassClient({
@@ -183,6 +209,13 @@ export function createOverpassClient({
     async fetchCity(osmRelationId) {
       const response = cityFetchResponseSchema.parse(await query(buildCityQuery(osmRelationId)));
       return toAreaImport(osmRelationId, response);
+    },
+    async fetchBoundary(osmRelationId) {
+      const response = cityFetchResponseSchema.parse(await query(buildBoundaryQuery(osmRelationId)));
+      return toAreaBoundary(osmRelationId, response);
+    },
+    async fetchStreetsInBox(box) {
+      return toAreaStreets(cityFetchResponseSchema.parse(await query(buildStreetsInBoxQuery(box))));
     },
     async fetchAdminCitiesInRegion(regionRelationId) {
       // Île-de-France: one Overpass call per département keeps geometries complete.
