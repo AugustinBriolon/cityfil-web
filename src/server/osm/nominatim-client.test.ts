@@ -66,4 +66,53 @@ describe("createNominatimClient", () => {
 
     await expect(client.reverseGeocode(48.92, 2.25)).resolves.toEqual({ kind: "retryable" });
   });
+
+  it("resolves a sub-commune place (Dutch woonplaats) to its enclosing admin_level 8 commune", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) =>
+      String(url).includes("/details")
+        ? Response.json({
+            address: [
+              { osm_type: "R", osm_id: 271110, localname: "Amsterdam", admin_level: 10 },
+              { osm_type: "R", osm_id: 47811, localname: "Amsterdam", admin_level: 8 },
+              { osm_type: "R", osm_id: 47654, localname: "Noord-Holland", admin_level: 4 },
+              { osm_type: null, osm_id: null, localname: "nl", admin_level: null },
+            ],
+          })
+        : Response.json({
+            osm_type: "relation",
+            osm_id: 271110,
+            address: { city: "Amsterdam" },
+            extratags: { admin_level: "10" },
+          }),
+    );
+    const client = createNominatimClient({ fetch: fetchImpl, wait: async () => {} });
+
+    await expect(client.reverseGeocode(52.34, 4.9)).resolves.toEqual({
+      kind: "hit",
+      result: { name: "Amsterdam", osmRelationId: 47811, adminLevel: 8 },
+    });
+    expect(String(fetchImpl.mock.calls.at(1)?.at(0))).toContain("/details?osmtype=R&osmid=271110");
+  });
+
+  it("returns miss when no admin_level 8 commune encloses the place", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) =>
+      String(url).includes("/details")
+        ? Response.json({ address: [{ osm_type: "R", osm_id: 47654, localname: "Noord-Holland", admin_level: 4 }] })
+        : Response.json({ osm_type: "node", osm_id: 12, address: { town: "Somewhere" } }),
+    );
+    const client = createNominatimClient({ fetch: fetchImpl, wait: async () => {} });
+
+    await expect(client.reverseGeocode(52.34, 4.9)).resolves.toEqual({ kind: "miss" });
+  });
+
+  it("returns retryable when the commune lookup hits an upstream error", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) =>
+      String(url).includes("/details")
+        ? new Response("upstream", { status: 503 })
+        : Response.json({ osm_type: "relation", osm_id: 271110, address: {}, extratags: { admin_level: "10" } }),
+    );
+    const client = createNominatimClient({ fetch: fetchImpl, wait: async () => {} });
+
+    await expect(client.reverseGeocode(52.34, 4.9)).resolves.toEqual({ kind: "retryable" });
+  });
 });
