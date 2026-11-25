@@ -14,6 +14,7 @@ import { createCityCatalogRepository } from "./repositories/city-catalog-reposit
 import { createCityImportQueueRepository } from "./repositories/city-import-queue-repository";
 import { createConquestRepository } from "./repositories/conquest-repository";
 import { createCoverageRepository } from "./repositories/coverage-repository";
+import { createReviewAccessRepository } from "./repositories/review-access-repository";
 import { createStravaAccountRepository } from "./repositories/strava-account-repository";
 import { createUserCityRepository } from "./repositories/user-city-repository";
 import { createUserRepository } from "./repositories/user-repository";
@@ -58,6 +59,7 @@ function buildServices(database: Database) {
     users,
     accounts,
     accountSummaries: createAccountSummaryRepository(database),
+    reviewAccess: createReviewAccessRepository(database),
     activities,
     areas,
     catalog,

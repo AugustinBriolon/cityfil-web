@@ -286,6 +286,18 @@ export const cityRivalries = pgTable(
   (table) => [primaryKey({ columns: [table.areaId, table.userLow, table.userHigh] })],
 );
 
+/** App Review sign-in attempts, to cap guesses at the review code. `clientKey` is a keyed hash, never an address. */
+export const reviewAccessAttempts = pgTable(
+  "review_access_attempts",
+  {
+    id: bigserial({ mode: "number" }).primaryKey(),
+    clientKey: text().notNull(),
+    succeeded: boolean().notNull(),
+    attemptedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index().on(table.attemptedAt), index().on(table.clientKey, table.attemptedAt)],
+);
+
 export type User = typeof users.$inferSelect;
 export type StravaAccount = typeof stravaAccounts.$inferSelect;
 export type Activity = typeof activities.$inferSelect;
