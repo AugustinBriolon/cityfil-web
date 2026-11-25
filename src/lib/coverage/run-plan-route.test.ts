@@ -11,6 +11,8 @@ import {
   planPocketExpandDegrees,
   runPlanRouteToGeoJson,
   turnType,
+  waysRoundAndBack,
+  type Leg,
   type PlanSegment,
 } from "./run-plan-route";
 
@@ -823,6 +825,86 @@ describe("collection loops", () => {
         if (beside && !wasRun) expect(route.pathMeters + 2 * scrap.lengthMeters).toBeGreaterThan(budgetMeters * 1.1);
       }
     }
+  });
+});
+
+describe("ways round and back", () => {
+  /** Legs through these points, in order: each leg's heading is from its start to its end. */
+  function legs(points: [number, number][]): Leg[] {
+    let meters = 0;
+    return points.slice(1).map((to, index) => {
+      const from = points[index]!;
+      const length = distanceMeters(from, to);
+      const heading = (Math.atan2((to[0] - from[0]) * Math.cos((48 * Math.PI) / 180), to[1] - from[1]) * 180) / Math.PI;
+      const leg = {
+        from,
+        to,
+        headingIn: heading,
+        headingOut: heading,
+        startMeters: meters,
+        endMeters: meters + length,
+      };
+      meters += length;
+      return leg;
+    });
+  }
+  // 30 m blocks: a roundabout-sized loop.
+  const dLat = 30 / 111_320;
+  const dLng = 30 / (111_320 * Math.cos((48 * Math.PI) / 180));
+  const p = (x: number, y: number): [number, number] => [2 + x * dLng, 48 + y * dLat];
+
+  it("counts going round a small block to come back out the way you came", () => {
+    // In from the south, round the block, back out south: no single U-turn, but it runs as one.
+    expect(waysRoundAndBack(legs([p(0, -1), p(0, 0), p(0, 1), p(1, 1), p(1, 0), p(0, 0), p(0, -1)]))).toBe(1);
+  });
+
+  it("does not count a street run straight on", () => {
+    expect(waysRoundAndBack(legs([p(0, 0), p(0, 1), p(0, 2), p(0, 3), p(0, 4)]))).toBe(0);
+  });
+
+  it("does not count going round the block to carry on the other way", () => {
+    // In from the south, round the block, out to the east: a turn, not a way back.
+    expect(waysRoundAndBack(legs([p(0, -1), p(0, 0), p(0, 1), p(1, 1), p(1, 0), p(2, 0)]))).toBe(0);
+  });
+
+  it("does not count a loop round a block too large to be a turnaround", () => {
+    const big = (x: number, y: number) => p(x * 4, y * 4);
+    expect(
+      waysRoundAndBack(legs([big(0, -1), big(0, 0), big(0, 1), big(1, 1), big(1, 0), big(0, 0), big(0, -1)])),
+    ).toBe(0);
+  });
+});
+
+describe("short dead ends", () => {
+  // A row left to run, a short dead end off it, and one far piece that keeps a 2 km loop from finishing the city.
+  const same = (a: number[], b: number[]) => a[0] === b[0] && a[1] === b[1];
+  const at = (column: number, row: number): [number, number] => [2 + column * 0.00135, 48 + row * 0.0009];
+  const row = at(0, 1)[1];
+  const streets = [
+    ...grid().map((street) => ({
+      ...street,
+      covered: !(
+        (street.coordinates[0]![1] === row && street.coordinates[1]![1] === row) ||
+        (same(street.coordinates[0]!, at(6, 5)) && same(street.coordinates[1]!, at(6, 6)))
+      ),
+    })),
+    seg(900, [at(3, 1), at(3, 0.2)], false, 80),
+  ];
+  const home = at(3, 3);
+  const runsDeadEnd = (coordinates: number[][]) => coordinates.some((point) => same(point, at(3, 0.2)));
+
+  it("leaves a short dead end out of a loop that does not finish the city", () => {
+    const route = buildRunPlanRoute(streets, { budgetMeters: 2_000, start: home, loop: true });
+    expect(route.coversAll).toBe(false);
+    expect(route.uncoveredMeters).toBeGreaterThanOrEqual(600);
+    expect(runsDeadEnd(route.coordinates)).toBe(false);
+  });
+
+  it("runs it in the loop that finishes the city", () => {
+    const finish = estimateFinishMeters(streets, home, true)!;
+    const { route } = planOuting(streets, { budgetMeters: Math.ceil(finish), start: home, loop: true });
+    expect(route.coversAll).toBe(true);
+    expect(runsDeadEnd(route.coordinates)).toBe(true);
   });
 });
 

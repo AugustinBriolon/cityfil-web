@@ -995,7 +995,7 @@ function streetSearch(
   };
   const extend = (soFar: number, node: NodeId, by: number) => {
     const ways = graph.outgoing.get(node) ?? [];
-    const deadEnd = turnAtDeadEnds && ways.every((edge) => edge.segmentId === ways[0]!.segmentId);
+    const deadEnd = turnAtDeadEnds && isDeadEnd(graph, node);
     const arrivedOn = (by < 0 ? arrivedBy : edges[by])?.segmentId;
     const metersSoFar = by < 0 ? 0 : meters[by]!;
     for (const edge of ways) {
@@ -1098,10 +1098,28 @@ function nearestConnectedNode(graph: StreetGraph, point: Position): NodeId | und
   return undefined;
 }
 
+/** A junction with one street out: the way in is the only way back. */
+function isDeadEnd(graph: StreetGraph, node: NodeId): boolean {
+  const ways = graph.outgoing.get(node) ?? [];
+  return ways.every((edge) => edge.segmentId === ways[0]!.segmentId);
+}
+
 /** Street distance is about this much longer than the straight line between the same points. */
 const STREET_DETOUR_FACTOR = 1.35;
 /** What one doubling-back costs a loop when candidates are ranked: enough to lose to any clean loop. */
 const HAIRPIN_PENALTY_METERS = 600;
+/** Going round a roundabout or a block to come back the way you came, within this much: a U-turn too. */
+const TURNAROUND_METERS = 250;
+/** How close to the junction where the runner came in they must be back for a way round to count. */
+const TURNAROUND_GAP_METERS = 15;
+/** An unfinished dead end shorter than this is run twice for little: left for the run that finishes the city. */
+const SHORT_DEAD_END_METERS = 300;
+
+/** What a drawn loop is worth: new street, minus each street run twice and each time the runner turns back. */
+function loopWorth({ newMeters, repeatMeters, hairpins }: WalkedLoop & { hairpins: number }): number {
+  return newMeters - 4 * repeatMeters - HAIRPIN_PENALTY_METERS * hairpins;
+}
+
 /** Loops kept for "another route": the best ones, each a different shape. */
 const ROUND_TRIP_CHOICES = 5;
 
@@ -1144,9 +1162,11 @@ function measureWalk(walked: DirectedEdge[]): WalkedLoop & { hairpins: number } 
   let hairpins = 0;
   let tip: Position | undefined;
   let heading: number | undefined;
+  const legs: Leg[] = [];
   for (const edge of walked) {
     const points = edge.coordinates;
     if (tip) meters += distanceMeters(tip, points[0]!);
+    const startMeters = meters;
     meters += drawnMeters(edge);
     // A waypoint on a small triangle of streets is left by doubling back along its other side:
     // not a U-turn on one street, but it runs like one.
@@ -1154,11 +1174,52 @@ function measureWalk(walked: DirectedEdge[]): WalkedLoop & { hairpins: number } 
     if (tip && heading != null && turnType(bearingDegrees(tip, points[1]!) - heading) === "u-turn") hairpins += 1;
     heading = bearingDegrees(points[points.length - 2]!, points[points.length - 1]!);
     tip = points[points.length - 1];
+    legs.push({
+      from: points[0]!,
+      to: tip!,
+      headingIn: bearingDegrees(points[0]!, points[1]!),
+      headingOut: heading,
+      startMeters,
+      endMeters: meters,
+    });
     if (seen.has(edge.segmentId)) repeatMeters += edge.lengthMeters;
     else if (isConquestEdge(edge)) newMeters += edge.lengthMeters;
     newMeters += take(seen, edge);
   }
-  return { walked, meters, newMeters, repeatMeters, hairpins };
+  return { walked, meters, newMeters, repeatMeters, hairpins: hairpins + waysRoundAndBack(legs) };
+}
+
+/** One street of a walk: where it starts and ends, the heading in and out, and how far into the walk. */
+export type Leg = {
+  from: Position;
+  to: Position;
+  headingIn: number;
+  headingOut: number;
+  startMeters: number;
+  endMeters: number;
+};
+
+/**
+ * Times a walk goes round a roundabout or a small block only to come back out where it went in, heading back
+ * the way it came. No single turn is a U-turn, but it runs as one, and the runner sees it as one.
+ */
+export function waysRoundAndBack(legs: readonly Leg[]): number {
+  let count = 0;
+  let countedUpTo = -1;
+  for (const [index, leg] of legs.entries()) {
+    // Back at the junction a street brought them to, leaving it the way they came. At least one street in
+    // between: leaving straight back down the same street is a hairpin, counted as such.
+    for (let back = index - 2; back > countedUpTo; back--) {
+      const arrival = legs[back]!;
+      if (leg.startMeters - arrival.endMeters > TURNAROUND_METERS) break;
+      if (distanceMeters(arrival.to, leg.from) > TURNAROUND_GAP_METERS) continue;
+      if (turnType(leg.headingIn - arrival.headingOut) !== "u-turn") continue;
+      count += 1;
+      countedUpTo = index;
+      break;
+    }
+  }
+  return count;
 }
 
 /**
@@ -1248,10 +1309,10 @@ function roundTrips(graph: StreetGraph, home: NodeId, budgetMeters: number): Rou
         }
         if (!complete || walked.length === 0) continue;
 
-        const { meters, newMeters, repeatMeters, hairpins } = measureWalk(walked);
+        const measured = measureWalk(walked);
+        const { meters, newMeters, repeatMeters } = measured;
         // A runner forgives a loop a little short or long far more easily than a street run twice.
-        const score =
-          newMeters - 4 * repeatMeters - 1.5 * Math.abs(meters - budgetMeters) - HAIRPIN_PENALTY_METERS * hairpins;
+        const score = loopWorth(measured) - 1.5 * Math.abs(meters - budgetMeters);
         const shape = walked
           .map((edge) => edge.segmentId)
           .sort((a, b) => a - b)
@@ -1341,10 +1402,14 @@ function collectionLoop(
   home: NodeId,
   budgetMeters: number,
   reversed: boolean,
+  leaveOut: (pocket: Pocket) => boolean = () => false,
 ): (WalkedLoop & { coversAll: boolean }) | null {
   const reachable = walkCosts(graph, home, (edge) => edge.lengthMeters).cost;
   const origin = graph.nodes[home]!;
-  const everyStop = tourOrder(origin, unfinishedPockets(graph, reachable));
+  const everyStop = tourOrder(
+    origin,
+    unfinishedPockets(graph, reachable).filter((pocket) => !leaveOut(pocket)),
+  );
   const limitMeters = budgetMeters * 1.1;
   const effort: Effort = { left: COLLECTION_EFFORT };
   const pocketOf = new Map<number, Pocket>();
@@ -1581,6 +1646,13 @@ function leastWorthFirst(home: Position, stops: readonly Pocket[]): Pocket[] {
   return order;
 }
 
+/** A short unfinished street the runner can only leave by turning back. */
+function isShortDeadEnd(graph: StreetGraph, pocket: Pocket): boolean {
+  if (pocket.meters >= SHORT_DEAD_END_METERS) return false;
+  for (const node of pocket.nodes) if (isDeadEnd(graph, node)) return true;
+  return false;
+}
+
 function unfinishedIn(graph: StreetGraph): number[] {
   const ids = new Set<number>();
   for (const edges of graph.outgoing.values())
@@ -1610,9 +1682,15 @@ function planLoop(segments: readonly PlanSegment[], options: RunPlanRouteOptions
   if (home == null) return null;
 
   const salt = options.salt ?? 0;
-  const collection = collectionLoop(graph, home, budgetMeters, salt % 2 === 1);
+  const reversed = salt % 2 === 1;
+  const collection = collectionLoop(graph, home, budgetMeters, reversed);
   // Finishing the city is the point of the game: a loop that does it is the answer, whatever its length.
   if (collection?.coversAll) return routeFromLoop(graph, collection, anchor, true);
+  // Not finishing anyway: the same tour without the short dead ends, each one a turn back for a few metres;
+  // they are left for the run that finishes the city.
+  const tidy = collection
+    ? collectionLoop(graph, home, budgetMeters, reversed, (pocket) => isShortDeadEnd(graph, pocket))
+    : null;
 
   // Half the distance asked, or nothing new on it, is not the run that was asked for: let the street walk try.
   const trips = roundTrips(graph, home, budgetMeters).filter(
@@ -1620,9 +1698,11 @@ function planLoop(segments: readonly PlanSegment[], options: RunPlanRouteOptions
   );
   // The first request gets the best loop; "another route" walks down the list.
   const trip = trips[Math.max(0, salt - 1) % Math.max(1, Math.min(ROUND_TRIP_CHOICES, trips.length))];
+  // Not finishing anyway: the tour without its short dead ends, when it has any stop left.
+  const collected = tidy ?? collection;
   // New street gained, minus every metre run a second time.
   const worth = (loop: WalkedLoop) => loop.newMeters - loop.repeatMeters;
-  const loop = collection && (!trip || worth(collection) > worth(trip)) ? collection : trip;
+  const loop = collected && (!trip || worth(collected) > worth(trip)) ? collected : trip;
   return loop ? routeFromLoop(graph, loop, anchor, false) : null;
 }
 
