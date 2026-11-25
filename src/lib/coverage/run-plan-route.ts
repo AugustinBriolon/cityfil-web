@@ -1646,6 +1646,16 @@ function leastWorthFirst(home: Position, stops: readonly Pocket[]): Pocket[] {
   return order;
 }
 
+/** Unfinished streets in short dead ends: what a run that does not finish the city leaves out. */
+function shortDeadEndStreets(segments: readonly PlanSegment[], options: RunPlanRouteOptions): Set<number> {
+  const graph = buildStreetGraph(segments, options.joinToleranceMeters ?? DEFAULT_JOIN_TOLERANCE_METERS);
+  const everywhere = new Map(graph.nodes.map((_, node) => [node, 0]));
+  const streets = new Set<number>();
+  for (const pocket of unfinishedPockets(graph, everywhere))
+    if (isShortDeadEnd(graph, pocket)) for (const id of pocket.segments) streets.add(id);
+  return streets;
+}
+
 /** A short unfinished street the runner can only leave by turning back. */
 function isShortDeadEnd(graph: StreetGraph, pocket: Pocket): boolean {
   if (pocket.meters >= SHORT_DEAD_END_METERS) return false;
@@ -1786,7 +1796,12 @@ function emptyRoute(): RunPlanRoute {
 export function buildRunPlanRoute(streets: readonly PlanSegment[], options: RunPlanRouteOptions): RunPlanRoute {
   const segments = streetsAsRun(streets);
   // The finishing walk has to take every street, dead ends included.
-  if (!options.loop || options.homewardSteer === false) return walkPlan(segments, options, new Set()).route;
+  if (options.homewardSteer === false) return walkPlan(segments, options, new Set()).route;
+  if (!options.loop) {
+    // A one-way run that does not finish the city leaves short dead ends to the one that does, as loops do.
+    const tidy = walkPlan(segments, options, shortDeadEndStreets(segments, options)).route;
+    return tidy.uncoveredMeters > 0 ? tidy : walkPlan(segments, options, new Set()).route;
+  }
   const roundTrip = planLoop(segments, options);
   if (roundTrip) return roundTrip;
   // No loop of that size around here: walk the streets out and back.

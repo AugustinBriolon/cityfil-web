@@ -900,6 +900,20 @@ describe("short dead ends", () => {
     expect(runsDeadEnd(route.coordinates)).toBe(false);
   });
 
+  it("leaves it out of a one-way run that does not finish the city", () => {
+    const route = buildRunPlanRoute(streets, { budgetMeters: 1_500, start: home, loop: false });
+    expect(route.coversAll).toBe(false);
+    expect(route.uncoveredMeters).toBeGreaterThan(0);
+    expect(runsDeadEnd(route.coordinates)).toBe(false);
+  });
+
+  it("runs it in the one-way run that finishes the city", () => {
+    const finish = estimateFinishMeters(streets, home, false)!;
+    const { route } = planOuting(streets, { budgetMeters: Math.ceil(finish), start: home, loop: false });
+    expect(route.coversAll).toBe(true);
+    expect(runsDeadEnd(route.coordinates)).toBe(true);
+  });
+
   it("runs it in the loop that finishes the city", () => {
     const finish = estimateFinishMeters(streets, home, true)!;
     const { route } = planOuting(streets, { budgetMeters: Math.ceil(finish), start: home, loop: true });
