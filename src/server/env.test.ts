@@ -36,6 +36,23 @@ describe("parseServerEnv", () => {
     expect(attempt).not.toThrow(/short-secret-value/);
   });
 
+  it("reads review access settings saved with spaces or a line break around them", () => {
+    const env = parseServerEnv({
+      ...validEnv,
+      REVIEW_ACCESS_CODE: "  correct-horse-battery-staple-42\n",
+      REVIEW_ACCESS_USER_ID: "11111111-1111-4111-8111-111111111111\n",
+    });
+    expect(env.REVIEW_ACCESS_CODE).toBe("correct-horse-battery-staple-42");
+    expect(env.REVIEW_ACCESS_USER_ID).toBe("11111111-1111-4111-8111-111111111111");
+  });
+
+  it("turns review access off, not the whole app, when its settings are invalid", () => {
+    const env = parseServerEnv({ ...validEnv, REVIEW_ACCESS_CODE: "short", REVIEW_ACCESS_USER_ID: "not-a-uuid" });
+    expect(env.REVIEW_ACCESS_CODE).toBeUndefined();
+    expect(env.REVIEW_ACCESS_USER_ID).toBeUndefined();
+    expect(env.AUTH_SECRET).toBe(validEnv.AUTH_SECRET);
+  });
+
   it("accepts a generated admin password hash and rejects a plain password", async () => {
     const hash = await hashAdminPassword("admin-password");
 
