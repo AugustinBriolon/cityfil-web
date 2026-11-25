@@ -235,6 +235,30 @@ describe("createConquestService", () => {
     });
   });
 
+  describe("previewScore", () => {
+    it("gives the runner's rank and share, naming them only while their profile is public", async () => {
+      const ada = await addUser("Ada", 3_000);
+      await addUser("Grace", 5_000);
+
+      await expect(harness.service.previewScore(ada.id, RENNES)).resolves.toEqual({
+        areaId: RENNES,
+        cityName: "Rennes",
+        runnerName: null,
+        rank: 2,
+        total: 2,
+        share: 0.3,
+      });
+
+      await harness.repositories.users.updateVisibility(ada.id, "public");
+      await expect(harness.service.previewScore(ada.id, RENNES)).resolves.toMatchObject({ runnerName: "Ada" });
+    });
+
+    it("has nothing to show for a city the runner does not have", async () => {
+      const ada = await addUser("Ada");
+      await expect(harness.service.previewScore(ada.id, 99)).resolves.toBeNull();
+    });
+  });
+
   describe("getCityRanks", () => {
     it("gives the viewer's rank in every city at once, out of the runners there", async () => {
       const ada = await addUser("Ada", 3_000);

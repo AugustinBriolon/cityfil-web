@@ -98,6 +98,16 @@ export type InvitePreview = {
   keeperOpen: boolean;
 };
 
+/** A runner's standing in one city, for a public share card. The name only when their profile is public. */
+export type ScorePreview = {
+  areaId: number;
+  cityName: string;
+  runnerName: string | null;
+  rank: number;
+  total: number;
+  share: number;
+};
+
 export type ConquestService = {
   refreshForUser: (userId: string) => Promise<void>;
   setVisibility: (userId: string, visibility: ProfileVisibility) => Promise<void>;
@@ -107,6 +117,7 @@ export type ConquestService = {
   getCityBoard: (viewerId: string, areaId: number) => Promise<CityBoard | null>;
   getCityRanking: (viewerId: string, areaId: number, limit: number) => Promise<CityRanking | null>;
   getCityRanks: (viewerId: string) => Promise<CityRanks>;
+  previewScore: (userId: string, areaId: number) => Promise<ScorePreview | null>;
 };
 
 type Dependencies = {
@@ -345,6 +356,28 @@ export function createConquestService({
           );
           return { areaId: city.areaId, rank: you.rank, total };
         }),
+      };
+    },
+
+    async previewScore(userId, areaId) {
+      const [runner, cities] = await Promise.all([users.findById(userId), coverage.listCityCoverage(userId)]);
+      const city = cities.find((entry) => entry.areaId === areaId);
+      if (!runner || !city) return null;
+      const { you, total } = rankingWindow(
+        await coverage.listCityRankings([areaId]),
+        { userId, coveredMeters: city.coveredMeters },
+        city.totalMeters,
+        0,
+      );
+      // The link outlives the moment it was shared: a profile turned private later stops naming its owner.
+      const isPublic = parseProfileVisibility(runner.profileVisibility) === "public";
+      return {
+        areaId,
+        cityName: city.name,
+        runnerName: isPublic ? runner.displayName : null,
+        rank: you.rank,
+        total,
+        share: you.share,
       };
     },
   };
