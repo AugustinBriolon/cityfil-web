@@ -50,8 +50,8 @@ runs; this package is the web globe plus the mobile API.
   with `pnpm exec tsx --env-file=.env.local scripts/rebuild-street-twins.ts`. A loop is planned within seconds
   whatever the city: a GPS start loads only the streets in reach, and the search has a counted effort budget, so
   the same request always draws the same route
-  ([ADR 0025](docs/adr/0025-loop-planning-within-seconds.md)). A loop that does not finish the city leaves out short dead ends, which only the
-  finishing loop runs ([ADR 0026](docs/adr/0026-collection-loops-leave-short-dead-ends.md)). `GET /api/mobile/cities/:areaId/finish` gives the length of one run
+  ([ADR 0025](docs/adr/0025-loop-planning-within-seconds.md)). A run that does not finish the city, loop or one way, leaves out short dead ends,
+  which only the finishing run takes ([ADR 0026](docs/adr/0026-collection-loops-leave-short-dead-ends.md)). `GET /api/mobile/cities/:areaId/finish` gives the length of one run
   that finishes the city, for the same route shape (`loop=0` for one way).
 - City rivalries: `POST /api/mobile/cities/invite` mints a 14-day link, `POST /api/mobile/cities/invite/accept`
   pairs two runners on one city, `GET /api/mobile/cities/:areaId/board` returns rivals plus Founder / Conqueror /
