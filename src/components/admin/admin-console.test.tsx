@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { buildAccountSummary } from "@tests/fixtures/account-summary";
 
@@ -31,6 +31,13 @@ function renderConsole(overrides: Partial<AdminConsoleProps> = {}) {
 }
 
 describe("AdminConsole", () => {
+  // The fixtures' last sync is dated: pin "now" next to it so it never turns stale as the calendar moves on.
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-12T12:00:00Z"));
+  });
+  afterAll(() => vi.useRealTimers());
+
   it("shows fleet totals", () => {
     renderConsole();
     const totals = screen.getAllByRole("definition").map((cell) => cell.textContent);
