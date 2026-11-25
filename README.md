@@ -66,7 +66,10 @@ scripts/seed-review-account.ts --confirm`: runs planned on real streets in two c
   hall of fame; private ones only to invited rivals. The invite landing (`/invite/:token`) and its Open Graph image
   show coverage and vacant titles, not the names of private title holders. See
   [ADR 0009](docs/adr/0009-city-rivalries-public-profiles-and-titles-after-100.md) and
-  [ADR 0010](docs/adr/0010-per-invite-open-graph-share-cards.md).
+  [ADR 0010](docs/adr/0010-per-invite-open-graph-share-cards.md). A runner's score in a city has its own public
+  page, `/share/:areaId/:userId`, whose Open Graph card shows the share and rank, and the name only while the
+  profile is public; the iOS app shares it next to a picture of the same card
+  ([ADR 0029](docs/adr/0029-city-score-share-cards.md)).
 - First Strava import returns after one activity page so the globe can draw traces immediately; remaining pages
   and OpenStreetMap street imports continue in `after()` hops, with the runner's cities jumping the import queue.
   When that work finishes, Expo sends a push if a token was registered (`PATCH /api/mobile/me` `expoPushToken`).
@@ -83,7 +86,8 @@ scripts/seed-review-account.ts --confirm`: runs planned on real streets in two c
 
 - Import full GPS streams or export GPX files — only Strava's simplified `summary_polyline` is stored.
 - Compute coverage above city level (department, region, country), or sell re-link tokens.
-- Generate in-app Story bitmaps; invite links unfurl a per-token Open Graph card instead.
+- Generate Story pictures on the server; the iOS app draws its own score picture, and invite links unfurl a
+  per-token Open Graph card.
 
 **Main dependencies:**
 
