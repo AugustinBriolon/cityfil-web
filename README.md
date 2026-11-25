@@ -57,7 +57,7 @@ runs; this package is the web globe plus the mobile API.
   (`REVIEW_ACCESS_USER_ID`). Wrong codes are capped at 5 per client per 15 minutes and 50 per day in total
   ([ADR 0027](docs/adr/0027-review-access-attempt-limits.md)); remove the code once review is done. The demo account
   is created (or recreated, if a reviewer deleted it) by `pnpm exec tsx --env-file=.env.local
-  scripts/seed-review-account.ts --confirm`: runs planned on real streets in two cities no real runner uses.
+scripts/seed-review-account.ts --confirm`: runs planned on real streets in two cities no real runner uses.
 - City rivalries: `POST /api/mobile/cities/invite` mints a 14-day link, `POST /api/mobile/cities/invite/accept`
   pairs two runners on one city, `GET /api/mobile/cities/:areaId/board` returns rivals plus Founder / Conqueror /
   Keeper titles, `GET /api/mobile/cities/:areaId/ranking` ranks everyone on one city, and
