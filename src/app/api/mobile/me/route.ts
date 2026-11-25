@@ -4,6 +4,7 @@ import { z } from "zod";
 import { parseProfileVisibility } from "@/lib/conquest/visibility";
 import { toCoverageShare } from "@/lib/coverage/street-coverage";
 import { isNextResponse, requireMobileUser } from "@/server/mobile/request-auth";
+import { mobileSyncState } from "@/server/mobile/sync-state";
 import { getServices } from "@/server/services";
 import { scheduleCityPipeline } from "@/server/services/city-pipeline";
 
@@ -32,10 +33,7 @@ export async function GET(request: Request) {
       avatarUrl: userOrError.avatarUrl,
       profileVisibility: userOrError.profileVisibility,
     },
-    sync: {
-      historyComplete: Boolean(account?.lastSyncedAt),
-      analysisPending: userOrError.analysisNotifyPending || rematchPending,
-    },
+    sync: mobileSyncState(account, userOrError, rematchPending),
     cities: cities.map((city) => ({
       areaId: city.areaId,
       name: city.name,

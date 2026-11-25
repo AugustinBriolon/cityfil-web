@@ -11,6 +11,11 @@ export async function POST(request: Request) {
   const userOrError = await requireMobileUser(request);
   if (isNextResponse(userOrError)) return userOrError;
 
+  // No Strava account (the App Review demo account): nothing to import, which is not a failure.
+  if (!(await getServices().accounts.findByUserId(userOrError.id))) {
+    return NextResponse.json({ status: "success", syncedRuns: 0, continues: false });
+  }
+
   const slot = tryConsumeManualSync(userOrError.id);
   if (!slot.ok) {
     const retryMinutes = Math.max(1, Math.ceil(slot.retryAfterMs / 60_000));
