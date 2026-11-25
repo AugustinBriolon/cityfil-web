@@ -75,3 +75,14 @@ tiled Overpass import → `street_segments`.
 Guards to add (phase 5): a per-user cap on new cities queued per day, a global daily cap on new cities,
 ignoring hand-entered (`manual`) activities and implausible speeds for city discovery, and ranking the queue by
 the number of distinct runners before raw run count.
+
+## 5. Changes made
+
+| Change                                                                        |                                               Before |                                                    After |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------: | -------------------------------------------------------: |
+| Map layers simplified to ~1 m, 5 decimals (`mapGeoJson`) — Paris, all streets |                                               2.2 MB |                                          0.79 MB (−64 %) |
+| `GET /api/mobile/streets?areaId=…` covered layer                              | every city's covered streets, filtered in JavaScript |                          that city only, filtered in SQL |
+| `GET /api/mobile/streets?kind=uncovered`                                      |                      also computed the covered layer | computes only what is asked; both layers run in parallel |
+
+Not done yet: scoping `creditedSegments` to one runner's activities, HTTP revalidation (`ETag`), and
+`pg_stat_statements` (needs an OK to install).
