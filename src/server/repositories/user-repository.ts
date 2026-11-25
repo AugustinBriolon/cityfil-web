@@ -10,6 +10,8 @@ export type UserRepository = {
   updateVisibility: (userId: string, profileVisibility: User["profileVisibility"]) => Promise<void>;
   updatePushToken: (userId: string, expoPushToken: string | null) => Promise<void>;
   setAnalysisNotifyPending: (userId: string, pending: boolean) => Promise<void>;
+  /** Runners whose first analysis has not been announced yet. */
+  listAnalysisPendingIds: (limit: number) => Promise<string[]>;
   delete: (userId: string) => Promise<void>;
 };
 
@@ -34,6 +36,14 @@ export function createUserRepository(database: Database): UserRepository {
     },
     async setAnalysisNotifyPending(userId, pending) {
       await database.update(users).set({ analysisNotifyPending: pending }).where(eq(users.id, userId));
+    },
+    async listAnalysisPendingIds(limit) {
+      const rows = await database
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.analysisNotifyPending, true))
+        .limit(limit);
+      return rows.map((row) => row.id);
     },
     async delete(userId) {
       await database.delete(users).where(eq(users.id, userId));

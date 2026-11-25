@@ -22,6 +22,8 @@ const serverEnvSchema = z.object({
    */
   REVIEW_ACCESS_CODE: z.string().trim().min(16).optional().catch(undefined),
   REVIEW_ACCESS_USER_ID: z.string().trim().pipe(z.uuid()).optional().catch(undefined),
+  /** Vercel sends it as a bearer token on cron requests. Absent → the pipeline watchdog route refuses every call. */
+  CRON_SECRET: z.string().min(16).optional(),
   /** Absent → the admin console is disabled. Generate with `pnpm admin:hash-password`. */
   ADMIN_PASSWORD_HASH: z
     .string()

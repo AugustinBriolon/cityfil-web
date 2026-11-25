@@ -116,6 +116,22 @@ describe("createCityImportQueueService", () => {
     expect(importQueue.complete).not.toHaveBeenCalled();
   });
 
+  it("drains city after city until the queue is empty", async () => {
+    const { service, importQueue } = harness({ tiles: [], imported: true });
+    vi.mocked(importQueue.hasWork).mockResolvedValueOnce(true).mockResolvedValueOnce(true).mockResolvedValue(false);
+
+    expect((await service.drain(() => false)).hasMore).toBe(false);
+    expect(importQueue.claimNext).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops draining when the invocation is out of time", async () => {
+    const { service, importQueue } = harness({ tiles: [], imported: true });
+    vi.mocked(importQueue.hasWork).mockResolvedValue(true);
+
+    expect((await service.drain(() => true)).hasMore).toBe(true);
+    expect(importQueue.claimNext).toHaveBeenCalledTimes(1);
+  });
+
   it("resumes a planned city without fetching its boundary again", async () => {
     const { service, areas, overpass } = harness({ tiles: [tile(2)], planned: true });
 

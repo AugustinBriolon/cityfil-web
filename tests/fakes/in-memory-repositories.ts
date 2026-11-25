@@ -38,6 +38,12 @@ export function createInMemoryRepositories() {
       const user = userRows.get(userId);
       if (user) userRows.set(userId, { ...user, analysisNotifyPending: pending });
     },
+    async listAnalysisPendingIds(limit) {
+      return [...userRows.values()]
+        .filter((user) => user.analysisNotifyPending)
+        .slice(0, limit)
+        .map((user) => user.id);
+    },
     async delete(userId) {
       userRows.delete(userId);
       for (const [athleteId, account] of accountRows) if (account.userId === userId) accountRows.delete(athleteId);

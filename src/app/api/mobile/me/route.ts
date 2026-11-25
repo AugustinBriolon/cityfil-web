@@ -7,6 +7,7 @@ import { isNextResponse, requireMobileUser } from "@/server/mobile/request-auth"
 import { mobileSyncState } from "@/server/mobile/sync-state";
 import { getServices } from "@/server/services";
 import { scheduleCityPipeline } from "@/server/services/city-pipeline";
+import { importIsUndriven } from "@/server/services/pipeline-watchdog";
 
 /** Authenticated snapshot for the mobile home / coverage screens. */
 export async function GET(request: Request) {
@@ -22,8 +23,8 @@ export async function GET(request: Request) {
 
   // A street import whose background hop died has nobody driving it: opening the app picks it up again.
   if (cities.some((city) => city.status !== "ready")) {
-    const stalled = await services.cityImportQueue.reviveStalledForUser(userOrError.id).catch(() => false);
-    if (stalled) scheduleCityPipeline(userOrError.id);
+    const undriven = await importIsUndriven(services.cityImportQueue, userOrError.id).catch(() => false);
+    if (undriven) scheduleCityPipeline(userOrError.id);
   }
 
   return NextResponse.json({

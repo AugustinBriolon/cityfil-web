@@ -18,6 +18,12 @@ export type CityImportQueueService = {
    * A city too large for the time budget goes back in the queue and resumes on the next call.
    */
   processNext: () => Promise<CityImportQueueResult>;
+  /**
+   * Imports queued cities one after another until the queue is empty or `shouldStop` says the invocation is
+   * out of time. One invocation for many cities: a hop per city was cut short by the platform's loop detection.
+   */
+  drain: (shouldStop: () => boolean) => Promise<CityImportQueueResult>;
+  hasWork: () => Promise<boolean>;
   hasWorkForUser: (userId: string) => Promise<boolean>;
   hasImportRunning: () => Promise<boolean>;
   reviveStalledForUser: (userId: string) => Promise<boolean>;
@@ -47,7 +53,16 @@ export function createCityImportQueueService({
 }: Dependencies): CityImportQueueService {
   const tileImport = createCityTileImportService({ areas, overpass, coverage, wait, now });
 
-  return {
+  const service: CityImportQueueService = {
+    async drain(shouldStop) {
+      for (;;) {
+        const result = await service.processNext();
+        if (!result.hasMore || shouldStop()) return result;
+      }
+    },
+    async hasWork() {
+      return importQueue.hasWork();
+    },
     async processNext() {
       const job = await importQueue.claimNext();
       if (!job) return { imported: false, cityName: null, hasMore: false };
@@ -85,4 +100,5 @@ export function createCityImportQueueService({
       return importQueue.reviveStalledForUser(userId);
     },
   };
+  return service;
 }

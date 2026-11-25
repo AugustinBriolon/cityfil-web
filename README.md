@@ -70,6 +70,8 @@ scripts/seed-review-account.ts --confirm`: runs planned on real streets in two c
 - First Strava import returns after one activity page so the globe can draw traces immediately; remaining pages
   and OpenStreetMap street imports continue in `after()` hops, with the runner's cities jumping the import queue.
   When that work finishes, Expo sends a push if a token was registered (`PATCH /api/mobile/me` `expoPushToken`).
+  A per-minute cron restarts any of that work left with nothing driving it
+  ([ADR 0028](docs/adr/0028-queue-draining-import-hops-and-a-cron-watchdog.md)).
   See [ADR 0011](docs/adr/0011-first-login-sync-returns-a-page-then-notifies.md).
 - Sends runs **recorded in the app** to Strava: `POST /api/mobile/runs/upload` turns the GPS segments into a GPX
   file and uploads it (idempotent per `clientRunId`), `GET /api/mobile/runs/upload/:uploadId` polls processing and
@@ -161,6 +163,7 @@ Defined in [`.env.example`](.env.example), loaded from `.env.local`.
 | `TOKEN_ENCRYPTION_KEY`        | 32-byte base64 key encrypting Strava tokens at rest             | `openssl rand -base64 32`                           |
 | `STRAVA_WEBHOOK_VERIFY_TOKEN` | Shared secret echoed by Strava when validating the subscription | `openssl rand -hex 24`                              |
 | `ADMIN_PASSWORD_HASH`         | Optional; enables `/admin` (username `admin`). Hash only        | `printf %s 'password' \| pnpm admin:hash-password`  |
+| `CRON_SECRET`                 | Optional; lets Vercel's per-minute cron restart stalled imports | `openssl rand -hex 24`                              |
 
 ### Strava webhooks (optional locally)
 

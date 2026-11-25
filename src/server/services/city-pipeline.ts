@@ -12,6 +12,9 @@ import {
 } from "@/server/pipeline/pipeline-hop";
 import { getServices } from "@/server/services";
 
+/** With one more city's import budget on top, still inside the routes' 300 s. */
+export const DRAIN_BUDGET_MS = 170_000;
+
 /** Continues a first-history Strava import (one page per hop), then discovers cities and imports their streets. */
 export function scheduleHistoryThenCities(userId: string) {
   dispatchHop({ kind: "history", userId, hop: 0 });
@@ -66,8 +69,9 @@ export async function runPipelineHop(hop: PipelineHop) {
         return;
       }
       case "import": {
-        // A hop of its own: a large city's Overpass download and PostGIS split get a whole invocation.
-        await services.cityImportQueue.processNext();
+        // One invocation drains the queue: a hop per city tripped the platform's loop detection (HTTP 508).
+        const deadline = Date.now() + DRAIN_BUDGET_MS;
+        await services.cityImportQueue.drain(() => Date.now() >= deadline);
         next("cities");
         return;
       }
