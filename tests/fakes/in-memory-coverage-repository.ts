@@ -78,7 +78,7 @@ export function createInMemoryCoverageRepository(
     async listSeasonCoveredMeters() {
       return [];
     },
-    async listCityRanking() {
+    async listCityRankings() {
       return [];
     },
   };

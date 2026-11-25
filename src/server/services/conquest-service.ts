@@ -85,6 +85,9 @@ export type CityRanking = {
   you: RankingEntry;
 };
 
+/** The viewer's place in each of their cities, out of how many runners: everything the Conquest list shows. */
+export type CityRanks = { cities: Array<{ areaId: number; rank: number; total: number }> };
+
 export type InvitePreview = {
   areaId: number;
   cityName: string;
@@ -103,6 +106,7 @@ export type ConquestService = {
   previewInvite: (token: string) => Promise<InvitePreview | null>;
   getCityBoard: (viewerId: string, areaId: number) => Promise<CityBoard | null>;
   getCityRanking: (viewerId: string, areaId: number, limit: number) => Promise<CityRanking | null>;
+  getCityRanks: (viewerId: string) => Promise<CityRanks>;
 };
 
 type Dependencies = {
@@ -296,7 +300,7 @@ export function createConquestService({
       if (!city) return null;
 
       const [runners, rivalIds] = await Promise.all([
-        coverage.listCityRanking(areaId),
+        coverage.listCityRankings([areaId]),
         conquests.listRivalIds(viewerId, areaId),
       ]);
       const { top, you, total } = rankingWindow(
@@ -323,6 +327,25 @@ export function createConquestService({
       };
 
       return { areaId, name: city.name, total, entries: top.map(toEntry), you: toEntry(you) };
+    },
+
+    async getCityRanks(viewerId) {
+      // The viewer's coverage once, every city's runners in one query: the list used to cost a request per city.
+      const cities = await coverage.listCityCoverage(viewerId);
+      const runners = await coverage.listCityRankings(cities.map((city) => city.areaId));
+      const runnersIn = new Map<number, typeof runners>();
+      for (const runner of runners) runnersIn.set(runner.areaId, [...(runnersIn.get(runner.areaId) ?? []), runner]);
+      return {
+        cities: cities.map((city) => {
+          const { you, total } = rankingWindow(
+            runnersIn.get(city.areaId) ?? [],
+            { userId: viewerId, coveredMeters: city.coveredMeters },
+            city.totalMeters,
+            0,
+          );
+          return { areaId: city.areaId, rank: you.rank, total };
+        }),
+      };
     },
   };
 }

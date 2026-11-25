@@ -41,11 +41,12 @@ describe("createConquestService", () => {
       async sumActivityDistanceInArea(userId) {
         return distances.get(userId) ?? 0;
       },
-      async listCityRanking(areaId) {
-        return [...coverageRows].flatMap(([userId, rows]) => {
-          const found = rows.find((row) => row.areaId === areaId);
-          return found ? [{ userId, coveredMeters: found.coveredMeters }] : [];
-        });
+      async listCityRankings(areaIds) {
+        return [...coverageRows].flatMap(([userId, rows]) =>
+          rows
+            .filter((row) => areaIds.includes(row.areaId))
+            .map((row) => ({ areaId: row.areaId, userId, coveredMeters: row.coveredMeters })),
+        );
       },
       async listSeasonCoveredMeters() {
         return [...season.entries()].map(([userId, meters]) => ({ userId, meters }));
@@ -231,6 +232,36 @@ describe("createConquestService", () => {
     it("refuses a city that is not on the viewer's profile", async () => {
       const ada = await addUser("Ada");
       await expect(harness.service.getCityRanking(ada.id, 99, 50)).resolves.toBeNull();
+    });
+  });
+
+  describe("getCityRanks", () => {
+    it("gives the viewer's rank in every city at once, out of the runners there", async () => {
+      const ada = await addUser("Ada", 3_000);
+      await addUser("Grace", 5_000);
+      harness.coverageRows.set(ada.id, [
+        ...(harness.coverageRows.get(ada.id) ?? []),
+        city({ areaId: 8, name: "Brest", coveredMeters: 0 }),
+      ]);
+
+      const { cities } = await harness.service.getCityRanks(ada.id);
+
+      expect(cities).toEqual([
+        { areaId: RENNES, rank: 2, total: 2 },
+        // Alone in a city and nothing run yet: first, but out of one.
+        { areaId: 8, rank: 1, total: 1 },
+      ]);
+    });
+
+    it("matches the full ranking of each city", async () => {
+      const ada = await addUser("Ada", 1_000);
+      await addUser("Grace", 5_000);
+      await addUser("Bea", 9_000);
+
+      const { cities } = await harness.service.getCityRanks(ada.id);
+      const ranking = await harness.service.getCityRanking(ada.id, RENNES, 50);
+
+      expect(cities).toEqual([{ areaId: RENNES, rank: ranking!.you.rank, total: ranking!.total }]);
     });
   });
 });

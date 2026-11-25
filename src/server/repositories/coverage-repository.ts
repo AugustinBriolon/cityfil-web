@@ -75,8 +75,13 @@ export type CoverageRepository = {
   sumActivityDistanceInArea: (userId: string, areaId: number) => Promise<number>;
   /** Unique street metres matched by each runner in the city during [from, to). */
   listSeasonCoveredMeters: (areaId: number, from: Date, to: Date) => Promise<{ userId: string; meters: number }[]>;
-  /** Soft-credit covered metres of every runner who has this city on their profile (same maths as `listCityCoverage`). */
-  listCityRanking: (areaId: number) => Promise<{ userId: string; coveredMeters: number }[]>;
+  /**
+   * Soft-credit covered metres of every runner who has one of these cities on their profile (same maths as
+   * `listCityCoverage`), for all of them in one query.
+   */
+  listCityRankings: (
+    areaIds: readonly number[],
+  ) => Promise<{ areaId: number; userId: string; coveredMeters: number }[]>;
 };
 
 export type RunPlanRequestOptions = { salt?: number; start?: LngLat; loop?: boolean };
@@ -506,24 +511,35 @@ export function createCoverageRepository(
       return rows[0]?.meters ?? 0;
     },
 
-    async listCityRanking(areaId) {
-      const rows = await database.execute<{ user_id: string; covered_meters: number }>(sql`
+    async listCityRankings(areaIds) {
+      if (areaIds.length === 0) return [];
+      const areas = sql`ARRAY[${sql.join(
+        areaIds.map((id) => sql`${id}`),
+        sql`, `,
+      )}]::int[]`;
+      const rows = await database.execute<{ area_id: number; user_id: string; covered_meters: number }>(sql`
         WITH shares AS (
-          SELECT activities.user_id, covered.segment_id, max(covered.covered_share)::float8 AS covered_share
+          SELECT segment.area_id, activities.user_id, covered.segment_id,
+                 max(covered.covered_share)::float8 AS covered_share
           FROM street_segments AS segment
           JOIN ${creditedSegments} AS covered ON covered.segment_id = segment.id
           JOIN activities ON activities.strava_activity_id = covered.activity_id
-          JOIN user_cities ON user_cities.user_id = activities.user_id AND user_cities.osm_relation_id = ${areaId}
-          WHERE segment.area_id = ${areaId} AND segment.counts_for_coverage
-          GROUP BY activities.user_id, covered.segment_id
+          JOIN user_cities ON user_cities.user_id = activities.user_id
+                          AND user_cities.osm_relation_id = segment.area_id
+          WHERE segment.area_id = ANY(${areas}) AND segment.counts_for_coverage
+          GROUP BY segment.area_id, activities.user_id, covered.segment_id
         )
-        SELECT shares.user_id,
+        SELECT shares.area_id::int AS area_id, shares.user_id,
                sum(segment.length_meters * (${softCreditSql(sql`shares.covered_share`)}))::float8 AS covered_meters
         FROM shares
         JOIN street_segments AS segment ON segment.id = shares.segment_id
-        GROUP BY shares.user_id
+        GROUP BY shares.area_id, shares.user_id
       `);
-      return rows.map((row) => ({ userId: row.user_id, coveredMeters: row.covered_meters }));
+      return rows.map((row) => ({
+        areaId: Number(row.area_id),
+        userId: row.user_id,
+        coveredMeters: row.covered_meters,
+      }));
     },
 
     async listSeasonCoveredMeters(areaId, from, to) {

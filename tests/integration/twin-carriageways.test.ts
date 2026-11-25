@@ -111,7 +111,7 @@ describe("twin carriageways", () => {
     expect(city!.strictCoveredMeters).toBeLessThan(2 * CARRIAGEWAY_METERS + 10);
     expect(city!.coveredMeters).toBeCloseTo(city!.strictCoveredMeters, 0);
 
-    const [ranked] = await coverage.listCityRanking(1002);
+    const [ranked] = await coverage.listCityRankings([1002]);
     expect(ranked).toMatchObject({ userId: runner.id });
     expect(ranked!.coveredMeters).toBeCloseTo(city!.strictCoveredMeters, 0);
   });

@@ -53,7 +53,9 @@ runs; this package is the web globe plus the mobile API.
   ([ADR 0025](docs/adr/0025-loop-planning-within-seconds.md)).
 - City rivalries: `POST /api/mobile/cities/invite` mints a 14-day link, `POST /api/mobile/cities/invite/accept`
   pairs two runners on one city, `GET /api/mobile/cities/:areaId/board` returns rivals plus Founder / Conqueror /
-  Keeper titles. `PATCH /api/mobile/me` sets `profileVisibility` (`private` by default). Public names appear on the
+  Keeper titles, `GET /api/mobile/cities/:areaId/ranking` ranks everyone on one city, and
+  `GET /api/mobile/cities/ranks` gives the runner's rank and runner count in every city in one request (a runner
+  alone on a city is first out of one). `PATCH /api/mobile/me` sets `profileVisibility` (`private` by default). Public names appear on the
   hall of fame; private ones only to invited rivals. The invite landing (`/invite/:token`) and its Open Graph image
   show coverage and vacant titles, not the names of private title holders. See
   [ADR 0009](docs/adr/0009-city-rivalries-public-profiles-and-titles-after-100.md) and
