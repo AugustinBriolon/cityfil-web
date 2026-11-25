@@ -47,7 +47,10 @@ runs; this package is the web globe plus the mobile API.
   ([ADR 0022](docs/adr/0022-neighbouring-streets-along-the-whole-boundary.md)). A run credits the twin carriageway of every
   segment it matches, in the percentage as in plans
   ([ADR 0023](docs/adr/0023-twin-carriageways-credited-in-coverage.md)); rebuild twins for cities imported earlier
-  with `pnpm exec tsx --env-file=.env.local scripts/rebuild-street-twins.ts`.
+  with `pnpm exec tsx --env-file=.env.local scripts/rebuild-street-twins.ts`. A loop is planned within seconds
+  whatever the city: a GPS start loads only the streets in reach, and the search has a counted effort budget, so
+  the same request always draws the same route
+  ([ADR 0025](docs/adr/0025-loop-planning-within-seconds.md)).
 - City rivalries: `POST /api/mobile/cities/invite` mints a 14-day link, `POST /api/mobile/cities/invite/accept`
   pairs two runners on one city, `GET /api/mobile/cities/:areaId/board` returns rivals plus Founder / Conqueror /
   Keeper titles. `PATCH /api/mobile/me` sets `profileVisibility` (`private` by default). Public names appear on the
