@@ -728,6 +728,73 @@ describe("collection loops", () => {
     expect(new Set(run).size).toBe(run.length);
   });
 
+  /** A square city of 100 m blocks; `isCovered` says which streets are already run. */
+  function blocks(size: number, isCovered: (id: number, column: number, row: number) => boolean) {
+    const at = (column: number, row: number): [number, number] => [2 + column * 0.00135, 48 + row * 0.0009];
+    const city: PlanSegment[] = [];
+    for (let row = 0; row < size; row++) {
+      for (let column = 0; column < size; column++) {
+        const covered = () => isCovered(city.length + 1, column, row);
+        if (column < size - 1) city.push(seg(city.length + 1, [at(column, row), at(column + 1, row)], covered(), 100));
+        if (row < size - 1) city.push(seg(city.length + 1, [at(column, row), at(column, row + 1)], covered(), 100));
+      }
+    }
+    return { city, at };
+  }
+  /** Colombes shape: a city barely started, its unfinished streets in hundreds of pockets. */
+  const scattered = () => blocks(40, (id) => id % 7 !== 0);
+
+  it("stays fast when hundreds of scraps are scattered over a large city", () => {
+    // Walking the whole tour and dropping one stop per walk took two minutes, past the app's timeout.
+    const { city, at } = scattered();
+
+    const startedAt = performance.now();
+    const route = buildRunPlanRoute(city, { budgetMeters: 10_000, start: at(20, 20), loop: true, salt: 1 });
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(route.coordinates.at(-1)).toEqual(route.coordinates[0]);
+    expect(route.pathMeters).toBeLessThanOrEqual(10_000 * 1.1);
+    expect(route.uncoveredMeters).toBeGreaterThan(0);
+    // ~0.5 s; three minutes before.
+    expect(elapsedMs).toBeLessThan(3_000);
+  });
+
+  it("gives the same loop for the same request, however much searching it took", () => {
+    // The search stops on effort spent, not on the clock: a slow server must not draw another route.
+    const plan = () => {
+      const { city, at } = scattered();
+      return buildRunPlanRoute(city, { budgetMeters: 10_000, start: at(20, 20), loop: true, salt: 1 });
+    };
+    expect(plan().coordinates).toEqual(plan().coordinates);
+  });
+
+  it("plans a short loop in a city far larger than the run without walking the whole city", () => {
+    // Paris shape: 16,000 streets, none run. A 3 km loop cannot leave the few blocks around its start.
+    const { city, at } = blocks(90, () => false);
+    const start = at(45, 45);
+
+    const startedAt = performance.now();
+    const { route, startsFromPosition } = planOuting(city, { budgetMeters: 3_000, start, loop: true });
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(startsFromPosition).toBe(true);
+    expect(route.coordinates.at(-1)).toEqual(route.coordinates[0]);
+    expect(route.pathMeters).toBeGreaterThanOrEqual(3_000 * 0.7);
+    expect(route.pathMeters).toBeLessThanOrEqual(3_000 * 1.1);
+    expect(pathFollowsSegments(route.coordinates as [number, number][], city)).toBe(true);
+    expect(elapsedMs).toBeLessThan(1_500);
+  });
+
+  it("still looks at the whole city when little is left to run near the athlete", () => {
+    // Two streets left: one beside the athlete, one 3.5 km east, out of a 1 km run's reach. Seen alone, the
+    // near one would pass for the whole city, and running it for finishing the city.
+    const lastTwo = new Set(["1,0", "35,0"]);
+    const { city, at } = blocks(40, (id, column, row) => id % 2 === 0 || !lastTwo.has(`${column},${row}`));
+    const { route } = planOuting(city, { budgetMeters: 1_000, start: at(0, 0) });
+    expect(route.uncoveredMeters).toBe(100);
+    expect(route.coversAll).toBe(false);
+  });
+
   it("takes back a dropped scrap the loop runs past, when it still fits", () => {
     // Two scraps on one street, 100 m apart: whatever the tour order makes of them, a loop that touches
     // the second one and has the distance for it does not leave it beside the line.

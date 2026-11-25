@@ -192,6 +192,8 @@ function legKindForEdge(edge: { covered: boolean; countsForCoverage: boolean }):
 type NodeId = number;
 
 type DirectedEdge = {
+  /** Place of this edge in {@link StreetGraph.edges}: what a search keeps its books by. */
+  index: number;
   segmentId: number;
   from: NodeId;
   to: NodeId;
@@ -207,6 +209,7 @@ type Twin = { segmentId: number; lengthMeters: number; unfinished: boolean };
 
 type StreetGraph = {
   nodes: Position[];
+  edges: DirectedEdge[];
   outgoing: Map<NodeId, DirectedEdge[]>;
   /** segment id → { startNode, endNode } for the forward coordinate order. */
   segmentNodes: Map<number, { start: NodeId; end: NodeId }>;
@@ -216,6 +219,16 @@ type StreetGraph = {
  * Cluster endpoints within join tolerance into shared nodes, then build a bidirectional graph.
  */
 function buildStreetGraph(segments: readonly PlanSegment[], joinToleranceMeters: number): StreetGraph {
+  // Never changed once built, and every walk of one request is over the same streets.
+  let graphs = streetGraphs.get(segments);
+  if (!graphs) streetGraphs.set(segments, (graphs = new Map()));
+  let graph = graphs.get(joinToleranceMeters);
+  if (!graph) graphs.set(joinToleranceMeters, (graph = joinStreets(segments, joinToleranceMeters)));
+  return graph;
+}
+const streetGraphs = new WeakMap<readonly PlanSegment[], Map<number, StreetGraph>>();
+
+function joinStreets(segments: readonly PlanSegment[], joinToleranceMeters: number): StreetGraph {
   const endpoints: Position[] = [];
   for (const segment of segments) {
     if (segment.coordinates.length < 2) continue;
@@ -284,7 +297,10 @@ function buildStreetGraph(segments: readonly PlanSegment[], joinToleranceMeters:
 
   const outgoing = new Map<NodeId, DirectedEdge[]>();
   const segmentNodes = new Map<number, { start: NodeId; end: NodeId }>();
-  function addEdge(edge: DirectedEdge) {
+  const edges: DirectedEdge[] = [];
+  function addEdge(street: Omit<DirectedEdge, "index">) {
+    const edge = { ...street, index: edges.length };
+    edges.push(edge);
     const list = outgoing.get(edge.from) ?? [];
     list.push(edge);
     outgoing.set(edge.from, list);
@@ -329,7 +345,7 @@ function buildStreetGraph(segments: readonly PlanSegment[], joinToleranceMeters:
     });
   }
 
-  return { nodes, outgoing, segmentNodes };
+  return { nodes, edges, outgoing, segmentNodes };
 }
 
 /**
@@ -414,9 +430,18 @@ function cutAtJunctions(segments: readonly PlanSegment[]): PlanSegment[] {
   });
 }
 
-/** The streets as the planner needs them: one of each, twins credited, then cut where they meet. */
+/**
+ * The streets as the planner needs them: one of each, twins credited, then cut where they meet.
+ * One request asks for the same streets several times over, and a city is thousands of them: prepared once.
+ */
+const preparedStreets = new WeakMap<readonly PlanSegment[], PlanSegment[]>();
 function streetsAsRun(streets: readonly PlanSegment[]): PlanSegment[] {
-  return cutAtJunctions(withTwinsCredited(withoutCopies(streets)));
+  let prepared = preparedStreets.get(streets);
+  if (!prepared) {
+    prepared = cutAtJunctions(withTwinsCredited(withoutCopies(streets)));
+    preparedStreets.set(streets, prepared);
+  }
+  return prepared;
 }
 
 /**
@@ -897,80 +922,161 @@ function throughNodes(graph: StreetGraph): Set<NodeId> {
   return new Set(open.keys());
 }
 
+/**
+ * What a loop may spend searching, in streets visited: the one cost that grows with the city and with how
+ * scattered its unfinished streets are. Counted rather than timed, so the same request always gets the same
+ * route. Once spent, planning keeps the best it has: a few million visits is a second or two of a server.
+ */
+type Effort = { left: number };
+const COLLECTION_EFFORT = 2_500_000;
+const ROUND_TRIP_EFFORT = 2_500_000;
+
 /** What a metre costs the loop search: new street is cheap, a street already in this loop nearly forbidden. */
 const NEW_STREET_COST = 0.45;
 const REPEAT_COST = 12;
 
 /**
- * Cheapest walk from `from` to the first street `reached` accepts, never turning back on the street it
- * arrives by. The search runs on directed streets rather than junctions, which is what makes a U-turn
- * unrepresentable. `turnAtDeadEnds` lifts the ban where a street simply stops: there is no other way out.
+ * Cheapest walks from `from`, never turning back on the street it arrives by. The search runs on directed
+ * streets rather than junctions, which is what makes a U-turn unrepresentable. `turnAtDeadEnds` lifts the ban
+ * where a street simply stops: there is no other way out.
+ *
+ * A search that answers "again" is kept between questions: asking for another destination carries on where
+ * the last one stopped, and answers exactly what a fresh search would. `taken` must not change in between.
+ * Null when no walk leads there; undefined when none costs less than `costBelow`, without looking further.
  */
-function walkWithoutTurningBack(
+function streetSearch(
   graph: StreetGraph,
-  from: NodeId,
-  arrivedBy: DirectedEdge | null,
-  reached: (edge: DirectedEdge) => boolean,
-  taken: ReadonlySet<number>,
-  maxMeters: number,
-  turnAtDeadEnds = false,
-): DirectedEdge[] | null {
-  type State = { edge: DirectedEdge; meters: number; via: State | null };
-  const best = new Map<DirectedEdge, number>();
-  const heap: [number, State][] = [];
-  const push = (cost: number, state: State) => {
-    heap.push([cost, state]);
-    for (let i = heap.length - 1; i > 0;) {
+  { from, arrivedBy, taken, maxMeters, turnAtDeadEnds = false, effort }: Walking,
+  answers: "once" | "again",
+): (reached: (edge: DirectedEdge) => boolean, costBelow?: number) => DirectedEdge[] | null | undefined {
+  const { edges } = graph;
+  // A search asked once is over before the next begins: they all write in the graph's one book.
+  const book = answers === "once" ? sharedBook(graph) : newBook(graph);
+  const search = (book.search += 1);
+  const { cost, meters, via, seenIn } = book;
+  // The heap, as two columns: no street visited allocates anything.
+  const heapCost: number[] = [];
+  const heapEdge: number[] = [];
+  const push = (edgeCost: number, edge: number) => {
+    let i = heapCost.length;
+    heapCost.push(edgeCost);
+    heapEdge.push(edge);
+    while (i > 0) {
       const parent = (i - 1) >> 1;
-      if (heap[parent]![0] <= heap[i]![0]) break;
-      [heap[i], heap[parent]] = [heap[parent]!, heap[i]!];
+      if (heapCost[parent]! <= edgeCost) break;
+      heapCost[i] = heapCost[parent]!;
+      heapEdge[i] = heapEdge[parent]!;
       i = parent;
     }
+    heapCost[i] = edgeCost;
+    heapEdge[i] = edge;
   };
-  const pop = (): [number, State] => {
-    const top = heap[0]!;
-    const last = heap.pop()!;
-    if (heap.length > 0) {
-      heap[0] = last;
-      for (let i = 0; ;) {
-        const left = 2 * i + 1;
-        const right = left + 1;
-        let small = i;
-        if (left < heap.length && heap[left]![0] < heap[small]![0]) small = left;
-        if (right < heap.length && heap[right]![0] < heap[small]![0]) small = right;
-        if (small === i) break;
-        [heap[i], heap[small]] = [heap[small]!, heap[i]!];
-        i = small;
-      }
+  const dropTop = () => {
+    const lastCost = heapCost.pop()!;
+    const lastEdge = heapEdge.pop()!;
+    const size = heapCost.length;
+    if (size === 0) return;
+    heapCost[0] = lastCost;
+    heapEdge[0] = lastEdge;
+    for (let i = 0; ;) {
+      const left = 2 * i + 1;
+      const right = left + 1;
+      let small = i;
+      if (left < size && heapCost[left]! < heapCost[small]!) small = left;
+      if (right < size && heapCost[right]! < heapCost[small]!) small = right;
+      if (small === i) break;
+      const [smallCost, smallEdge] = [heapCost[small]!, heapEdge[small]!];
+      heapCost[small] = heapCost[i]!;
+      heapEdge[small] = heapEdge[i]!;
+      heapCost[i] = smallCost;
+      heapEdge[i] = smallEdge;
+      i = small;
     }
-    return top;
   };
-  const extend = (cost: number, node: NodeId, state: State | null) => {
+  const extend = (soFar: number, node: NodeId, by: number) => {
     const ways = graph.outgoing.get(node) ?? [];
     const deadEnd = turnAtDeadEnds && ways.every((edge) => edge.segmentId === ways[0]!.segmentId);
+    const arrivedOn = (by < 0 ? arrivedBy : edges[by])?.segmentId;
+    const metersSoFar = by < 0 ? 0 : meters[by]!;
     for (const edge of ways) {
-      if (!deadEnd && edge.segmentId === (state?.edge ?? arrivedBy)?.segmentId) continue;
-      const meters = (state?.meters ?? 0) + edge.lengthMeters;
-      if (meters > maxMeters) continue;
+      if (!deadEnd && edge.segmentId === arrivedOn) continue;
+      const walked = metersSoFar + edge.lengthMeters;
+      if (walked > maxMeters) continue;
       const weight = taken.has(edge.segmentId) ? REPEAT_COST : isConquestEdge(edge) ? NEW_STREET_COST : 1;
-      const next = cost + edge.lengthMeters * weight;
-      if (next >= (best.get(edge) ?? Infinity)) continue;
-      best.set(edge, next);
-      push(next, { edge, meters, via: state });
+      const next = soFar + edge.lengthMeters * weight;
+      const { index } = edge;
+      if (seenIn[index] === search && next >= cost[index]!) continue;
+      seenIn[index] = search;
+      cost[index] = next;
+      meters[index] = walked;
+      via[index] = by;
+      push(next, index);
     }
   };
-  extend(0, from, null);
-  while (heap.length > 0) {
-    const [cost, state] = pop();
-    if (cost > (best.get(state.edge) ?? Infinity)) continue;
-    if (reached(state.edge)) {
-      const path: DirectedEdge[] = [];
-      for (let step: State | null = state; step; step = step.via) path.unshift(step.edge);
-      return path;
+  const pathTo = (last: number) => {
+    const path: DirectedEdge[] = [];
+    for (let edge = last; edge >= 0; edge = via[edge]!) path.unshift(edges[edge]!);
+    return path;
+  };
+  /** Streets whose cheapest walk is known, nearest first: the order a fresh search would meet them in. */
+  const settled: number[] = [];
+  extend(0, from, -1);
+  return (reached, costBelow = Infinity) => {
+    for (const edge of settled) {
+      if (cost[edge]! >= costBelow) return undefined;
+      if (reached(edges[edge]!)) return pathTo(edge);
     }
-    extend(cost, state.edge.to, state);
-  }
-  return null;
+    while (heapCost.length > 0) {
+      const edgeCost = heapCost[0]!;
+      if (edgeCost >= costBelow) return undefined;
+      const edge = heapEdge[0]!;
+      dropTop();
+      if (effort) effort.left -= 1;
+      // Left behind by a cheaper walk to the same street found since.
+      if (edgeCost > cost[edge]!) continue;
+      settled.push(edge);
+      extend(edgeCost, edges[edge]!.to, edge);
+      if (reached(edges[edge]!)) return pathTo(edge);
+    }
+    return null;
+  };
+}
+
+/** Where a search starts and what it may walk. */
+type Walking = {
+  from: NodeId;
+  arrivedBy: DirectedEdge | null;
+  taken: ReadonlySet<number>;
+  maxMeters: number;
+  turnAtDeadEnds?: boolean;
+  effort?: Effort;
+};
+
+/** What a search knows of each street, by {@link DirectedEdge.index}; `seenIn` tells whose entry it is. */
+type SearchBook = { cost: Float64Array; meters: Float64Array; via: Int32Array; seenIn: Uint32Array; search: number };
+const sharedBooks = new WeakMap<StreetGraph, SearchBook>();
+function newBook({ edges }: StreetGraph): SearchBook {
+  return {
+    cost: new Float64Array(edges.length),
+    meters: new Float64Array(edges.length),
+    via: new Int32Array(edges.length),
+    seenIn: new Uint32Array(edges.length),
+    search: 0,
+  };
+}
+function sharedBook(graph: StreetGraph): SearchBook {
+  let book = sharedBooks.get(graph);
+  if (!book) sharedBooks.set(graph, (book = newBook(graph)));
+  return book;
+}
+
+/** Cheapest walk from `from` to the first street `reached` accepts: one question to a {@link streetSearch}. */
+function walkWithoutTurningBack(
+  graph: StreetGraph,
+  walking: Walking,
+  reached: (edge: DirectedEdge) => boolean,
+): DirectedEdge[] | null {
+  return streetSearch(graph, walking, "once")(reached) ?? null;
 }
 
 /**
@@ -1077,13 +1183,23 @@ function roundTrips(graph: StreetGraph, home: NodeId, budgetMeters: number): Rou
     return best;
   };
 
+  // Every loop leaves home on untaken streets: one search answers the first leg of all of them.
+  const effort: Effort = { left: ROUND_TRIP_EFFORT };
+  const fromHome = streetSearch(
+    graph,
+    { from: home, arrivedBy: null, taken: new Set(), maxMeters: budgetMeters, effort },
+    "again",
+  );
+  const drawn = new Set<string>();
   const trips = new Map<string, RoundTrip>();
-  for (const spread of [30, 50, 75]) {
-    // Triangle start → A → B → start: two sides of `radius` and the chord between the waypoints.
-    const straightLine = 2 + 2 * Math.sin(toRadians(spread));
-    for (const scale of [0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.35]) {
+  // The circles likeliest to give the distance asked are drawn first: they are the ones a search short of
+  // effort must not miss.
+  for (const scale of [1, 0.9, 1.1, 0.8, 1.2, 0.7, 1.35, 0.6]) {
+    for (const spread of [30, 50, 75]) {
+      // Triangle start → A → B → start: two sides of `radius` and the chord between the waypoints.
+      const straightLine = 2 + 2 * Math.sin(toRadians(spread));
       const radius = (budgetMeters / STREET_DETOUR_FACTOR / straightLine) * scale;
-      for (let bearing = 0; bearing < 360; bearing += 30) {
+      for (let bearing = 0; bearing < 360 && effort.left > 0; bearing += 30) {
         const waypoint = (offset: number) => {
           const angle = toRadians(bearing + offset);
           const point = [
@@ -1096,30 +1212,38 @@ function roundTrips(graph: StreetGraph, home: NodeId, budgetMeters: number): Rou
         const first = waypoint(-spread);
         const second = waypoint(spread);
         if (first == null || second == null || first === second || first === home || second === home) continue;
+        // Waypoints that snap to the same two junctions as an earlier circle draw the same loop again.
+        const waypoints = `${first},${second}`;
+        if (drawn.has(waypoints)) continue;
+        drawn.add(waypoints);
 
         const walked: DirectedEdge[] = [];
         const taken = new Set<number>();
+        // Only a loop within a tenth of the distance asked is kept: a leg that cannot fit is not searched.
+        let roomMeters = budgetMeters * 1.1;
         let complete = true;
         for (const [from, to] of [
           [home, first],
           [first, second],
           [second, home],
         ] as const) {
-          const leg = walkWithoutTurningBack(
-            graph,
-            from,
-            walked[walked.length - 1] ?? null,
-            (edge) => edge.to === to,
-            taken,
-            budgetMeters,
-          );
-          if (leg == null) {
-            complete = false;
-            break;
-          }
-          for (const edge of leg) {
+          const reached = (edge: DirectedEdge) => edge.to === to;
+          const arrivedBy = walked[walked.length - 1] ?? null;
+          const leg = arrivedBy
+            ? walkWithoutTurningBack(
+                graph,
+                { from, arrivedBy, taken, maxMeters: Math.min(budgetMeters, roomMeters), effort },
+                reached,
+              )
+            : fromHome(reached);
+          for (const edge of leg ?? []) {
             walked.push(edge);
             take(taken, edge);
+            roomMeters -= drawnMeters(edge);
+          }
+          if (leg == null || roomMeters < 0) {
+            complete = false;
+            break;
           }
         }
         if (!complete || walked.length === 0) continue;
@@ -1221,20 +1345,54 @@ function collectionLoop(
   const reachable = walkCosts(graph, home, (edge) => edge.lengthMeters).cost;
   const origin = graph.nodes[home]!;
   const everyStop = tourOrder(origin, unfinishedPockets(graph, reachable));
-  const fits = (loop: WalkedLoop) => loop.meters <= budgetMeters * 1.1;
+  const limitMeters = budgetMeters * 1.1;
+  const effort: Effort = { left: COLLECTION_EFFORT };
+  const pocketOf = new Map<number, Pocket>();
+  for (const pocket of everyStop) for (const id of pocket.segments) pocketOf.set(id, pocket);
 
-  type Walk = { walked: DirectedEdge[]; taken: Set<number>; cost: number };
-  const walkTo = (walk: Walk, reached: (edge: DirectedEdge) => boolean): boolean => {
-    const last = walk.walked[walk.walked.length - 1] ?? null;
-    const leg = walkWithoutTurningBack(graph, last?.to ?? home, last, reached, walk.taken, Infinity, true);
-    for (const edge of leg ?? []) {
-      const weight = walk.taken.has(edge.segmentId) ? REPEAT_COST : isConquestEdge(edge) ? NEW_STREET_COST : 1;
-      walk.cost += edge.lengthMeters * weight;
-      walk.walked.push(edge);
-      take(walk.taken, edge);
+  /** `takenIn` counts each pocket's streets already run, so what is left of one is never counted again. */
+  type Walk = {
+    walked: DirectedEdge[];
+    taken: Set<number>;
+    takenIn: Map<Pocket, number>;
+    cost: number;
+    meters: number;
+  };
+  const copyOf = (walk: Walk): Walk => ({
+    ...walk,
+    walked: [...walk.walked],
+    taken: new Set(walk.taken),
+    takenIn: new Map(walk.takenIn),
+  });
+  const leftOf = (pocket: Pocket, walk: Walk) => pocket.segments.size - (walk.takenIn.get(pocket) ?? 0);
+  const step = (walk: Walk, edge: DirectedEdge) => {
+    const weight = walk.taken.has(edge.segmentId) ? REPEAT_COST : isConquestEdge(edge) ? NEW_STREET_COST : 1;
+    walk.cost += edge.lengthMeters * weight;
+    // The length the runner will see, summed as measureWalk does: it is what the budget is held against.
+    const tip = walk.walked[walk.walked.length - 1]?.coordinates.at(-1);
+    walk.meters += (tip ? distanceMeters(tip, edge.coordinates[0]!) : 0) + drawnMeters(edge);
+    walk.walked.push(edge);
+    for (const id of [edge.segmentId, ...edge.twins.map((twin) => twin.segmentId)]) {
+      if (walk.taken.has(id)) continue;
+      walk.taken.add(id);
+      const pocket = pocketOf.get(id);
+      if (pocket) walk.takenIn.set(pocket, (walk.takenIn.get(pocket) ?? 0) + 1);
     }
+  };
+  const searchFrom = (walk: Walk, answers: "once" | "again") => {
+    const arrivedBy = walk.walked[walk.walked.length - 1] ?? null;
+    const from = arrivedBy?.to ?? home;
+    const walking = { from, arrivedBy, taken: walk.taken, maxMeters: Infinity, turnAtDeadEnds: true, effort };
+    return streetSearch(graph, walking, answers);
+  };
+  const walkTo = (walk: Walk, reached: (edge: DirectedEdge) => boolean): boolean => {
+    const leg = searchFrom(walk, "once")(reached);
+    for (const edge of leg ?? []) step(walk, edge);
     return leg != null;
   };
+  // Two orders through the same streets cost the same to the last bit or so: a search is only cut short
+  // where it is over by more than rounding, so the order kept is the one comparing whole walks keeps.
+  const clearlyOver = (cost: number) => cost + 1e-6;
   const leftIn = (pocket: Pocket, walk: Walk) => (edge: DirectedEdge) =>
     pocket.segments.has(edge.segmentId) && !walk.taken.has(edge.segmentId);
 
@@ -1245,22 +1403,32 @@ function collectionLoop(
   const throughPocket = (
     walk: Walk,
     pocket: Pocket,
-    leave: (walk: Walk) => (edge: DirectedEdge) => boolean,
+    leave: (walk: Walk) => ((edge: DirectedEdge) => boolean) | null,
     bound: number,
   ): { walk: Walk; cost: number } | null => {
     const left = [...pocket.nodes]
       .flatMap((node) => graph.outgoing.get(node) ?? [])
       .filter((edge) => pocket.segments.has(edge.segmentId) && !walk.taken.has(edge.segmentId));
     if (left.length === 0) {
-      const onward: Walk = { walked: [...walk.walked], taken: new Set(walk.taken), cost: walk.cost };
-      walkTo(onward, leave(onward));
+      // The way out costs at least what the search says: past the bound, it is not worth walking.
+      const next = leave(walk);
+      const wayOut = next ? searchFrom(walk, "once")(next, clearlyOver(bound - walk.cost)) : null;
+      if (wayOut === undefined) return null;
+      const onward = copyOf(walk);
+      for (const edge of wayOut ?? []) step(onward, edge);
       return onward.cost < bound ? { walk, cost: onward.cost } : null;
     }
     let best: { walk: Walk; cost: number } | null = null;
     let cheapest = bound;
+    // Every street tried next is reached from the same place: one search finds them all.
+    const search = searchFrom(walk, "again");
     for (const target of left) {
-      const trial: Walk = { walked: [...walk.walked], taken: new Set(walk.taken), cost: walk.cost };
-      if (!walkTo(trial, (edge) => edge === target) || trial.cost >= cheapest) continue;
+      if (effort.left <= 0) break;
+      const leg = search((edge) => edge === target, clearlyOver(cheapest - walk.cost));
+      if (!leg) continue;
+      const trial = copyOf(walk);
+      for (const edge of leg) step(trial, edge);
+      if (trial.cost >= cheapest) continue;
       const through = throughPocket(trial, pocket, leave, cheapest);
       if (!through) continue;
       best = through;
@@ -1269,62 +1437,148 @@ function collectionLoop(
     return best;
   };
 
-  const walkTour = (stops: readonly Pocket[]) => {
-    let walk: Walk = { walked: [], taken: new Set(), cost: 0 };
+  /**
+   * What the pocket costs taking the nearest street each time. It is one of the orders tried, so the best
+   * order costs no more: searching under it from the first try leaves every dearer walk unexplored.
+   */
+  const nearestFirstCost = (
+    walk: Walk,
+    pocket: Pocket,
+    leave: (walk: Walk) => ((edge: DirectedEdge) => boolean) | null,
+  ): number => {
+    const greedy = copyOf(walk);
+    while (leftOf(pocket, greedy) > 0) if (!walkTo(greedy, leftIn(pocket, greedy))) return Infinity;
+    const next = leave(greedy);
+    if (next) walkTo(greedy, next);
+    return clearlyOver(greedy.cost);
+  };
+
+  /** "too-long" as soon as the walk outgrows the budget: the rest of it could only make it longer. */
+  type Tour = (WalkedLoop & { taken: Set<number> }) | "too-long" | null;
+  const walkTour = (stops: readonly Pocket[]): Tour => {
+    let walk: Walk = { walked: [], taken: new Set(), takenIn: new Map(), cost: 0, meters: 0 };
     const order = reversed ? [...stops].reverse() : stops;
-    order.forEach((pocket, index) => {
+    for (const [index, pocket] of order.entries()) {
       const after = order[index + 1];
-      const leave = (from: Walk) => (after ? leftIn(after, from) : (edge: DirectedEdge) => edge.to === home);
+      // Nowhere to go when the next stop was run in passing: a search cut short must not read as "too far".
+      const leave = (from: Walk) => {
+        if (!after) return (edge: DirectedEdge) => edge.to === home;
+        return leftOf(after, from) > 0 ? leftIn(after, from) : null;
+      };
       for (;;) {
-        const left = [...pocket.segments].filter((id) => !walk.taken.has(id)).length;
-        if (left >= 2 && left <= POCKET_LOOKAHEAD_STREETS) {
-          walk = throughPocket(walk, pocket, leave, Infinity)?.walk ?? walk;
-          return;
+        if (walk.meters > limitMeters) return "too-long";
+        const left = leftOf(pocket, walk);
+        // Nothing left here: searching the whole city for one more street would only say so.
+        if (left === 0) break;
+        if (left >= 2 && left <= POCKET_LOOKAHEAD_STREETS && effort.left > 0) {
+          const through = throughPocket(walk, pocket, leave, nearestFirstCost(walk, pocket, leave));
+          // Out of effort before one order was walked to its end: the nearest street first, as larger pockets.
+          if (!through && effort.left <= 0) continue;
+          walk = through?.walk ?? walk;
+          break;
         }
-        if (!walkTo(walk, leftIn(pocket, walk))) return;
+        if (!walkTo(walk, leftIn(pocket, walk))) break;
       }
-    });
+    }
+    if (walk.meters > limitMeters) return "too-long";
     const { walked, taken } = walk;
     if (walked.length === 0) return null;
     if (walked[walked.length - 1]!.to !== home && !walkTo(walk, (edge) => edge.to === home)) return null;
     return { ...measureWalk(walked), taken };
   };
+  const fits = (tour: Tour): tour is WalkedLoop & { taken: Set<number> } =>
+    tour != null && tour !== "too-long" && tour.meters <= limitMeters;
 
-  let stops = everyStop;
-  let tour = walkTour(stops);
-  while (tour && !fits(tour)) {
-    // Over budget: drop the stop that buys the least new street per metre of detour, and walk again.
-    const center = (index: number) => (index < 0 || index >= stops.length ? origin : stops[index]!.center);
-    let worst = 0;
-    let worstYield = Infinity;
-    stops.forEach((pocket, index) => {
-      const detour =
-        distanceMeters(center(index - 1), pocket.center) +
-        distanceMeters(pocket.center, center(index + 1)) -
-        distanceMeters(center(index - 1), center(index + 1));
-      const pocketYield = pocket.meters / (pocket.meters + detour * STREET_DETOUR_FACTOR + 1);
-      if (pocketYield < worstYield) {
-        worst = index;
-        worstYield = pocketYield;
-      }
-    });
-    stops = stops.filter((_, index) => index !== worst);
-    tour = walkTour(stops);
+  // Over budget, stops are dropped least worthy first. That order is known before any walk, and fewer
+  // stops make a shorter loop: halving finds the first tour that fits in a dozen walks, not one per stop.
+  const dropped = leastWorthFirst(origin, everyStop);
+  const stopsAfter = (drops: number) => {
+    const gone = new Set(dropped.slice(0, drops));
+    return everyStop.filter((stop) => !gone.has(stop));
+  };
+  const tours = new Map<number, Tour>();
+  const tourAfter = (drops: number): Tour => {
+    if (!tours.has(drops)) tours.set(drops, walkTour(stopsAfter(drops)));
+    return tours.get(drops)!;
+  };
+  let tooFew = 0;
+  let enough = everyStop.length;
+  while (tooFew < enough) {
+    const drops = (tooFew + enough) >> 1;
+    const tour = tourAfter(drops);
+    // A tour that cannot be walked at all ends the search as one that fits does.
+    if (tour == null || fits(tour)) enough = drops;
+    else tooFew = drops + 1;
   }
-  if (!tour) return null;
+  let tour = tourAfter(enough);
+  if (!fits(tour)) return null;
 
   // A dropped street the loop runs past looks forgotten: take it back while the loop still fits.
+  let stops = new Set(stopsAfter(enough));
+  let passed = new Set(tour.walked.map((edge) => edge.to));
+  const isPassed = (pocket: Pocket) => {
+    const [few, many] = pocket.nodes.size < passed.size ? [pocket.nodes, passed] : [passed, pocket.nodes];
+    for (const node of few) if (many.has(node)) return true;
+    return false;
+  };
   for (const pocket of everyStop) {
-    if (stops.includes(pocket) || !tour.walked.some((edge) => pocket.nodes.has(edge.to))) continue;
-    const withIt = everyStop.filter((stop) => stop === pocket || stops.includes(stop));
+    if (effort.left <= 0) break;
+    if (stops.has(pocket) || !isPassed(pocket)) continue;
+    const withIt = everyStop.filter((stop) => stop === pocket || stops.has(stop));
     const longer = walkTour(withIt);
-    if (longer && fits(longer)) {
-      stops = withIt;
+    if (fits(longer)) {
+      stops = new Set(withIt);
       tour = longer;
+      passed = new Set(tour.walked.map((edge) => edge.to));
     }
   }
   const { taken, ...loop } = tour;
   return { ...loop, coversAll: unfinishedIn(graph).every((id) => taken.has(id)) };
+}
+
+/**
+ * The order a tour's stops are given up in when it is over budget: each time, the one that buys the least
+ * new street per metre of detour between its neighbours still on the tour.
+ */
+function leastWorthFirst(home: Position, stops: readonly Pocket[]): Pocket[] {
+  const before = stops.map((_, index) => index - 1);
+  const after = stops.map((_, index) => index + 1);
+  const center = (index: number) => (index < 0 || index >= stops.length ? home : stops[index]!.center);
+  const worthOf = (index: number) => {
+    const pocket = stops[index]!;
+    const detour =
+      distanceMeters(center(before[index]!), pocket.center) +
+      distanceMeters(pocket.center, center(after[index]!)) -
+      distanceMeters(center(before[index]!), center(after[index]!));
+    return pocket.meters / (pocket.meters + detour * STREET_DETOUR_FACTOR + 1);
+  };
+  const worth = stops.map((_, index) => worthOf(index));
+  const onTour = stops.map(() => true);
+  const order: Pocket[] = [];
+  while (order.length < stops.length) {
+    let worst = -1;
+    let leastWorth = Infinity;
+    for (let index = 0; index < stops.length; index++) {
+      if (!onTour[index]) continue;
+      if (worst < 0) worst = index;
+      if (worth[index]! < leastWorth) {
+        worst = index;
+        leastWorth = worth[index]!;
+      }
+    }
+    order.push(stops[worst]!);
+    onTour[worst] = false;
+    const [previous, next] = [before[worst]!, after[worst]!];
+    if (previous >= 0) {
+      after[previous] = next;
+      worth[previous] = worthOf(previous);
+    }
+    if (next < stops.length) {
+      before[next] = previous;
+      worth[next] = worthOf(next);
+    }
+  }
+  return order;
 }
 
 function unfinishedIn(graph: StreetGraph): number[] {
@@ -1618,6 +1872,8 @@ function walkPlan(
     tail = entryNode;
     walked.push(
       (graph.outgoing.get(entryNode) ?? []).find((edge) => edge.segmentId === seed.id && edge.to === exitNode) ?? {
+        // A seed the graph could not join: drawn, never searched.
+        index: -1,
         segmentId: seed.id,
         from: entryNode,
         to: exitNode,
@@ -1859,6 +2115,30 @@ const finishingOptions = { salt: 0, maxBridgeMeters: FINISH_BRIDGE_METERS, homew
  * to finish them ({@link estimateFinishMeters}), the finishing walk is returned instead: a length shown
  * as "finishes the city" must actually finish it.
  */
+/** Unfinished street within reach, in outings: with this much to run nearby, the rest of the city is not looked at. */
+const PLENTY_NEARBY_OUTINGS = 3;
+
+/**
+ * The streets an outing from `start` can use. A loop never goes further than half its length from where it
+ * starts, a one-way run than its whole length: planning a 10 km run through Paris does not need Paris.
+ * The whole city when no start is given, or when there is too little left nearby to be sure of filling the run.
+ */
+function streetsInReach(streets: readonly PlanSegment[], options: OutingOptions): readonly PlanSegment[] {
+  const { start, budgetMeters } = options;
+  if (!start) return streets;
+  const longest = budgetMeters * 1.1;
+  const reach =
+    (options.loop ? longest / 2 : longest + bridgeBudgetMeters(budgetMeters, options.maxBridgeMeters)) +
+    MAX_ANCHOR_SNAP_METERS;
+  // Flat-earth metres: exact enough at the scale of a run, and this looks at every point of the city.
+  const metersPerLng = 111_320 * Math.cos(toRadians(start[1]!));
+  const isNear = (point: Position) =>
+    Math.hypot((point[0]! - start[0]!) * metersPerLng, (point[1]! - start[1]!) * 111_320) <= reach;
+  const near = streets.filter((street) => street.coordinates.some(isNear));
+  if (near.length === streets.length) return streets;
+  return unfinishedMeters(near) >= PLENTY_NEARBY_OUTINGS * budgetMeters ? near : streets;
+}
+
 /** Every unfinished metre has to be run at least once: no outing shorter than this can finish the city. */
 function unfinishedMeters(segments: readonly PlanSegment[]): number {
   return segments.reduce(
@@ -1868,8 +2148,14 @@ function unfinishedMeters(segments: readonly PlanSegment[]): number {
 }
 
 export function planOuting(streets: readonly PlanSegment[], options: OutingOptions): Outing {
-  const segments = streetsAsRun(streets);
-  const outing = planFromStartOrCity(segments, options);
+  const near = streetsInReach(streets, options);
+  let segments = streetsAsRun(near);
+  let outing = planFromStartOrCity(segments, options);
+  if (near !== streets && !outing.startsFromPosition) {
+    // Nothing to run from where the athlete stands: the whole city is needed to choose where to start.
+    segments = streetsAsRun(streets);
+    outing = planFromStartOrCity(segments, options);
+  }
   // Skip the second walk when this budget cannot finish anyway (the usual case on a big city).
   if (outing.route.coversAll || options.budgetMeters < unfinishedMeters(segments)) return outing;
   const finishing = planFromStartOrCity(segments, { ...options, ...finishingOptions });
