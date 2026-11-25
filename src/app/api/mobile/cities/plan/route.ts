@@ -4,6 +4,7 @@ import { z } from "zod";
 import { isPlanStartAllowed, PLAN_START_MAX_DISTANCE_METERS } from "@/lib/coverage/plan-start";
 import { toCoverageShare } from "@/lib/coverage/street-coverage";
 import { isNextResponse, requireMobileUser } from "@/server/mobile/request-auth";
+import { loopQuery } from "@/server/mobile/route-shape";
 import { getServices } from "@/server/services";
 
 const querySchema = z
@@ -14,8 +15,7 @@ const querySchema = z
     salt: z.coerce.number().int().min(0).max(1_000_000).optional().default(0),
     startLat: z.coerce.number().min(-90).max(90).optional(),
     startLng: z.coerce.number().min(-180).max(180).optional(),
-    /** "0" lets the run end away from its start; loops are the default. */
-    loop: z.enum(["0", "1"]).optional().default("1"),
+    loop: loopQuery,
   })
   .refine((query) => (query.startLat == null) === (query.startLng == null), {
     message: "startLat and startLng go together",
@@ -75,7 +75,7 @@ export async function GET(request: Request) {
   const plan = await services.coverage.getRunPlanStreets(userOrError.id, city.areaId, budgetMeters, {
     salt: parsed.data.salt,
     start,
-    loop: parsed.data.loop === "1",
+    loop: parsed.data.loop,
   });
   if (start && !plan.startsFromPosition) {
     // No street known from the runner to the city, so no line was drawn: fetch theirs for the next plan.

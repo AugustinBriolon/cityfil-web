@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { isNextResponse, requireMobileUser } from "@/server/mobile/request-auth";
+import { readLoop } from "@/server/mobile/route-shape";
 import { getServices } from "@/server/services";
 
 type RouteContext = { params: Promise<{ areaId: string }> };
@@ -17,7 +18,7 @@ const startSchema = z
 
 /**
  * Outing length that runs every unfinished street of the city in one go, from the athlete's position
- * when given. `finishMeters` is null when no single run (≤ 30 km) can finish it.
+ * when given, as a loop unless `loop=0`. `finishMeters` is null when no single run (≤ 30 km) can finish it.
  */
 export async function GET(request: Request, context: RouteContext) {
   const userOrError = await requireMobileUser(request);
@@ -29,7 +30,8 @@ export async function GET(request: Request, context: RouteContext) {
     startLat: url.searchParams.get("startLat") ?? undefined,
     startLng: url.searchParams.get("startLng") ?? undefined,
   });
-  if (!Number.isInteger(areaId) || areaId <= 0 || !parsed.success) {
+  const loop = readLoop(url.searchParams);
+  if (!Number.isInteger(areaId) || areaId <= 0 || !parsed.success || loop == null) {
     return NextResponse.json({ error: "invalid_query" }, { status: 400 });
   }
 
@@ -40,7 +42,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   const { startLat, startLng } = parsed.data;
   const start = startLat != null && startLng != null ? { lat: startLat, lng: startLng } : undefined;
-  const finishMeters = await services.coverage.getFinishMeters(userOrError.id, areaId, start);
+  const finishMeters = await services.coverage.getFinishMeters(userOrError.id, areaId, start, loop);
   return NextResponse.json(
     { areaId, finishMeters: finishMeters == null ? null : Math.ceil(finishMeters) },
     { headers: { "Cache-Control": "no-store" } },

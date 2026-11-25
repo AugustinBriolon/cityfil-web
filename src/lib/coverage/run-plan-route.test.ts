@@ -524,6 +524,18 @@ describe("finishing a city", () => {
     }
   });
 
+  it("finishes in a one-way run no longer than the loop that comes back", () => {
+    // The app asks for one or the other depending on "Loop / One way": they must not be swapped.
+    const streets = comb();
+    const start: [number, number] = [2, 48];
+    const oneWay = estimateFinishMeters(streets, start, false)!;
+    const loop = estimateFinishMeters(streets, start, true)!;
+    expect(oneWay).toBeGreaterThanOrEqual(1_000);
+    expect(oneWay).toBeLessThan(loop);
+    const { route } = planOuting(streets, { budgetMeters: Math.ceil(oneWay), start, loop: false, salt: 0 });
+    expect(route.coversAll).toBe(true);
+  });
+
   it("does not claim to finish with a budget below the estimate", () => {
     const streets = comb();
     const finish = estimateFinishMeters(streets)!;

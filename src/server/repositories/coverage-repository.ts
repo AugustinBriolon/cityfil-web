@@ -70,7 +70,8 @@ export type CoverageRepository = {
     maneuvers: RunPlanManeuver[];
   }>;
   /** Outing length that finishes the city from `start` (see `estimateFinishMeters`). */
-  getFinishMeters: (userId: string, areaId: number, start?: LngLat) => Promise<number | null>;
+  /** Length of one run that finishes the city: a loop back to the start unless `loop` is false. */
+  getFinishMeters: (userId: string, areaId: number, start?: LngLat, loop?: boolean) => Promise<number | null>;
   /** GPS distance of every run that touched at least one street in the city. */
   sumActivityDistanceInArea: (userId: string, areaId: number) => Promise<number>;
   /** Unique street metres matched by each runner in the city during [from, to). */
@@ -489,10 +490,10 @@ export function createCoverageRepository(
       };
     },
 
-    async getFinishMeters(userId, areaId, start) {
+    async getFinishMeters(userId, areaId, start, loop = true) {
       const segments = await loadPlanSegments(userId, areaId, start);
-      // Loop length: the app plans loops by default, and a budget that closes the loop also finishes an open run.
-      return estimateFinishMeters(segments, start ? [start.lng, start.lat] : undefined, true);
+      // A loop by default, as the app plans: a budget that closes the loop also finishes an open run.
+      return estimateFinishMeters(segments, start ? [start.lng, start.lat] : undefined, loop);
     },
 
     async sumActivityDistanceInArea(userId, areaId) {
