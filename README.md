@@ -53,6 +53,9 @@ runs; this package is the web globe plus the mobile API.
   ([ADR 0025](docs/adr/0025-loop-planning-within-seconds.md)). A run that does not finish the city, loop or one way, leaves out short dead ends,
   which only the finishing run takes ([ADR 0026](docs/adr/0026-collection-loops-leave-short-dead-ends.md)). `GET /api/mobile/cities/:areaId/finish` gives the length of one run
   that finishes the city, for the same route shape (`loop=0` for one way).
+- App Review: `POST /api/mobile/auth/review` exchanges `REVIEW_ACCESS_CODE` for a session on the demo account
+  (`REVIEW_ACCESS_USER_ID`). Wrong codes are capped at 5 per client per 15 minutes and 50 per day in total
+  ([ADR 0027](docs/adr/0027-review-access-attempt-limits.md)); remove the code once review is done.
 - City rivalries: `POST /api/mobile/cities/invite` mints a 14-day link, `POST /api/mobile/cities/invite/accept`
   pairs two runners on one city, `GET /api/mobile/cities/:areaId/board` returns rivals plus Founder / Conqueror /
   Keeper titles, `GET /api/mobile/cities/:areaId/ranking` ranks everyone on one city, and
