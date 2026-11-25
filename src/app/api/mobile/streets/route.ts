@@ -16,28 +16,17 @@ export async function GET(request: Request) {
   const areaId = areaParam ? Number(areaParam) : null;
   const kind = url.searchParams.get("kind") ?? (areaId != null ? "both" : "covered");
 
-  const coverage = getServices().coverage;
-  const covered = await coverage.getCoveredStreets(userOrError.id);
-  const coveredFiltered =
-    areaId != null && Number.isFinite(areaId)
-      ? {
-          type: "FeatureCollection" as const,
-          features: covered.features.filter((feature) => feature.properties.areaId === areaId),
-        }
-      : covered;
-
-  if (kind === "covered") {
-    return NextResponse.json({ covered: coveredFiltered, uncovered: { type: "FeatureCollection", features: [] } });
-  }
-
-  if (areaId == null || !Number.isFinite(areaId)) {
+  const area = areaId != null && Number.isFinite(areaId) ? areaId : undefined;
+  if (kind !== "covered" && area == null) {
     return NextResponse.json({ error: "areaId_required_for_uncovered" }, { status: 400 });
   }
 
-  const uncovered = await coverage.getUncoveredStreets(userOrError.id, areaId);
-  if (kind === "uncovered") {
-    return NextResponse.json({ covered: { type: "FeatureCollection", features: [] }, uncovered });
-  }
-
-  return NextResponse.json({ covered: coveredFiltered, uncovered });
+  // Only the layers asked for, filtered in SQL, side by side.
+  const coverage = getServices().coverage;
+  const none = { type: "FeatureCollection" as const, features: [] };
+  const [covered, uncovered] = await Promise.all([
+    kind === "uncovered" ? none : coverage.getCoveredStreets(userOrError.id, area),
+    kind === "covered" || area == null ? none : coverage.getUncoveredStreets(userOrError.id, area),
+  ]);
+  return NextResponse.json({ covered, uncovered });
 }

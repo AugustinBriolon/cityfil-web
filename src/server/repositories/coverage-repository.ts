@@ -37,7 +37,8 @@ export type CoverageRepository = {
    */
   markActivitiesPendingInBox: (areaId: number, box: TileBox) => Promise<number>;
   listCityCoverage: (userId: string) => Promise<CityCoverage[]>;
-  getCoveredStreets: (userId: string) => Promise<CoveredStreets>;
+  /** Covered street geometry per city (merged), for map layers; one city only when `areaId` is given. */
+  getCoveredStreets: (userId: string, areaId?: number) => Promise<CoveredStreets>;
   /** Strava ids of the athlete's runs whose trace touches the city boundary (cross-city runs included). */
   listActivityIdsInArea: (userId: string, areaId: number) => Promise<Set<string>>;
   /** Still-uncovered street geometry for one city (merged), for conquest map layers. */
@@ -91,6 +92,13 @@ export function createCoverageRepository(
   database: Database,
   rules: CoverageRules = COVERAGE_RULES,
 ): CoverageRepository {
+  /**
+   * Map layers only, never coverage math: ~1 m simplification and 5 decimals (1.1 m) cut Paris's uncovered
+   * layer from 2.2 MB to 0.8 MB with no visible change at street zoom (docs/audit/2026-11-data-audit.md).
+   */
+  const mapGeoJson = (lines: ReturnType<typeof sql>) =>
+    sql`ST_AsGeoJSON(ST_SimplifyPreserveTopology(ST_LineMerge(ST_Collect(${lines})), 0.00001), 5)`;
+
   /**
    * Every segment a run credits: the ones it matched, and their twin carriageways with the same share
    * (ADR 0023). Every read of a runner's coverage goes through this, so percentage, map and plans agree.
@@ -374,12 +382,13 @@ export function createCoverageRepository(
       }));
     },
 
-    async getCoveredStreets(userId) {
+    async getCoveredStreets(userId, areaId) {
       // Adjacent hard-covered segments are merged per area to keep the payload small.
       const rows = await database.execute<{ area_id: string; geometry: string }>(sql`
-        SELECT segment.area_id, ST_AsGeoJSON(ST_LineMerge(ST_Collect(segment.path)), 6) AS geometry
+        SELECT segment.area_id, ${mapGeoJson(sql`segment.path`)} AS geometry
         FROM street_segments AS segment
         WHERE segment.counts_for_coverage
+          ${areaId == null ? sql`` : sql`AND segment.area_id = ${areaId}`}
           AND segment.id IN (${segmentsHardCoveredBy(userId)})
         GROUP BY segment.area_id
       `);
@@ -431,7 +440,7 @@ export function createCoverageRepository(
 
     async getUncoveredStreets(userId, areaId) {
       const rows = await database.execute<{ geometry: string }>(sql`
-        SELECT ST_AsGeoJSON(ST_LineMerge(ST_Collect(segment.path)), 6) AS geometry
+        SELECT ${mapGeoJson(sql`segment.path`)} AS geometry
         FROM street_segments AS segment
         WHERE segment.area_id = ${areaId}
           AND segment.counts_for_coverage

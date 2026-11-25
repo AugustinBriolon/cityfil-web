@@ -247,6 +247,8 @@ describe("street coverage in PostGIS", () => {
       const streets = await coverage.getCoveredStreets(runner.id);
       expect(streets.features).toHaveLength(1);
       expect(streets.features[0]).toMatchObject({ properties: { areaId: 1001 }, geometry: { type: "LineString" } });
+      expect((await coverage.getCoveredStreets(runner.id, 1001)).features).toHaveLength(1);
+      expect((await coverage.getCoveredStreets(runner.id, 9999)).features).toHaveLength(0);
     });
 
     it("ignores a parallel street 60 m away", async () => {
