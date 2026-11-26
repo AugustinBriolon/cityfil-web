@@ -12,19 +12,12 @@ const credentials = {
   privateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
 };
 const device = { token: "f".repeat(64), topic: "run.cityfil.app", environment: "sandbox" as const, locale: "fr-FR" };
-const alert = { titleKey: "push.analysisComplete.title", bodyKey: "push.analysisComplete.body", link: "cityfil://map" };
+const alert = { title: "Ta carte est prête 🗺️", body: "Toutes tes courses sont posées.", link: "cityfil://map" };
 
 describe("apnsPayload", () => {
-  it("lets the device word the alert in its own language and says where a tap goes", () => {
-    expect(JSON.parse(apnsPayload({ ...alert, bodyArgs: ["Trappes"], link: "cityfil://city/49540" }))).toEqual({
-      aps: {
-        alert: {
-          "title-loc-key": "push.analysisComplete.title",
-          "loc-key": "push.analysisComplete.body",
-          "loc-args": ["Trappes"],
-        },
-        sound: "default",
-      },
+  it("carries the finished words and where a tap goes", () => {
+    expect(JSON.parse(apnsPayload({ ...alert, link: "cityfil://city/49540" }))).toEqual({
+      aps: { alert: { title: "Ta carte est prête 🗺️", body: "Toutes tes courses sont posées." }, sound: "default" },
       link: "cityfil://city/49540",
     });
   });

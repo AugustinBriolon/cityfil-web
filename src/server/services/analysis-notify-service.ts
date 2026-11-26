@@ -1,4 +1,5 @@
 import type { ApnsSender } from "@/server/push/apns";
+import { analysisCompleteCopy } from "@/server/push/push-copy";
 import { analysisCompletePayload, sendExpoPush } from "@/server/push/expo-push";
 import type { PushDeviceRepository } from "@/server/repositories/push-device-repository";
 import type { UserRepository } from "@/server/repositories/user-repository";
@@ -6,13 +7,6 @@ import type { UserRepository } from "@/server/repositories/user-repository";
 export type AnalysisNotifyService = {
   /** Sends the completion push once, then clears the pending flag even if nothing could be notified. */
   notifyIfPending: (userId: string) => Promise<"sent" | "cleared" | "skipped">;
-};
-
-/** Keys of the app's own strings: the device words them in the runner's language. */
-export const ANALYSIS_COMPLETE_ALERT = {
-  titleKey: "push.analysisComplete.title",
-  bodyKey: "push.analysisComplete.body",
-  link: "cityfil://map",
 };
 
 type Dependencies = {
@@ -28,10 +22,12 @@ export function createAnalysisNotifyService({ users, devices, apns }: Dependenci
     if (!apns) return false;
     let sent = false;
     for (const device of await devices.listForUser(userId)) {
-      const result = await apns.send(device, ANALYSIS_COMPLETE_ALERT).catch((error: unknown) => {
-        console.error("APNs push failed", error);
-        return "failed" as const;
-      });
+      const result = await apns
+        .send(device, { ...analysisCompleteCopy(device.locale), link: "cityfil://map" })
+        .catch((error: unknown) => {
+          console.error("APNs push failed", error);
+          return "failed" as const;
+        });
       if (result === "gone") await devices.forget(device.token);
       sent ||= result === "sent";
     }

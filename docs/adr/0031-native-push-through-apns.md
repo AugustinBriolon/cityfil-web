@@ -22,14 +22,15 @@ you) need a way to reach the native app first. Expo's service could relay to APN
   `POST /api/mobile/push-devices` and removed by `DELETE` on sign-out. The bundle id travels with the token so the
   sender addresses the right app, and only Cityfil's (`run.cityfil.app`) is accepted; the environment does too,
   since Debug builds are reached through the APNs sandbox. A token APNs reports as gone is deleted.
-- **Words on the device**: payloads carry `title-loc-key` / `loc-key`, resolved against the app's own strings,
-  so a notification reads in the runner's language without the server knowing it.
+- **Words on the server**: the device registers its language, and the backend sends finished French or English
+  text (`src/server/push/push-copy.ts`). String keys resolved by the app were tried first, but a device running an
+  older app showed the raw key ("push.runSynced.title") for any notification added since.
 
 ## Consequences
 
 - The Expo token keeps working for the older app; the two run side by side until it is retired.
 - A device signed in to another account moves to it: one device, one runner.
-- New notification kinds only add a call to the sender and two strings in the app.
+- A new notification kind is a server change only: no app update, and older apps word it right.
 - The migration `0012_push_devices` must reach production before the app registers devices.
 
 ## References

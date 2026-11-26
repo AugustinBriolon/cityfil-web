@@ -1,6 +1,6 @@
 import { toCoverageShare, type CityCoverage } from "@/lib/coverage/street-coverage";
 import type { ApnsSender } from "@/server/push/apns";
-import { formatPushDistance, formatPushShare } from "@/server/push/push-format";
+import { runSyncedCopy } from "@/server/push/push-copy";
 import type { PushDeviceRepository } from "@/server/repositories/push-device-repository";
 
 /** Below this a run only grazed a street: not worth a notification. */
@@ -39,13 +39,7 @@ export function createRunNotifyService({ devices, apns }: Dependencies): RunNoti
       if (!gain || !apns) return gain;
       for (const device of await devices.listForUser(userId)) {
         const result = await apns
-          .send(device, {
-            titleKey: "push.runSynced.title",
-            titleArgs: [formatPushDistance(gain.gainedMeters, device.locale), gain.name],
-            bodyKey: "push.runSynced.body",
-            bodyArgs: [formatPushShare(gain.share, device.locale)],
-            link: `cityfil://city/${gain.areaId}`,
-          })
+          .send(device, { ...runSyncedCopy(gain, device.locale), link: `cityfil://city/${gain.areaId}` })
           .catch((error: unknown) => {
             console.error("APNs push failed", error);
             return "failed" as const;

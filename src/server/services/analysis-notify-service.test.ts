@@ -4,7 +4,7 @@ import type { User } from "@/server/db/schema";
 import type { ApnsSender } from "@/server/push/apns";
 import type { PushDevice } from "@/server/repositories/push-device-repository";
 
-import { ANALYSIS_COMPLETE_ALERT, createAnalysisNotifyService } from "./analysis-notify-service";
+import { createAnalysisNotifyService } from "./analysis-notify-service";
 
 const now = new Date("2026-10-06T12:00:00Z");
 const phone: PushDevice = {
@@ -61,7 +61,11 @@ describe("createAnalysisNotifyService", () => {
     const { service, deviceStore, users } = harness({ devices: [phone, oldPad], apns: { send } });
 
     await expect(service.notifyIfPending("user-1")).resolves.toBe("sent");
-    expect(send).toHaveBeenCalledWith(phone, ANALYSIS_COMPLETE_ALERT);
+    expect(send).toHaveBeenCalledWith(phone, {
+      title: "Ta carte est prête 🗺️",
+      body: "Toutes tes courses sont posées. Viens voir les rues qui t'appartiennent déjà 👀",
+      link: "cityfil://map",
+    });
     expect(deviceStore.forget).toHaveBeenCalledWith(oldPad.token);
     expect(deviceStore.forget).toHaveBeenCalledTimes(1);
     expect(users.setAnalysisNotifyPending).toHaveBeenCalledWith("user-1", false);

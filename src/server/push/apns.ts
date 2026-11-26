@@ -4,17 +4,8 @@ import { importPKCS8, SignJWT } from "jose";
 
 import type { PushDevice } from "@/server/repositories/push-device-repository";
 
-/**
- * What the runner reads, and where a tap takes them. Keys resolve on the device against the app's own strings,
- * in its language; `link` is a `cityfil://` deep link to the screen the notification talks about.
- */
-export type ApnsAlert = {
-  titleKey: string;
-  titleArgs?: string[];
-  bodyKey: string;
-  bodyArgs?: string[];
-  link: string;
-};
+/** What the runner reads, already in their language, and the `cityfil://` screen a tap opens. */
+export type ApnsAlert = { title: string; body: string; link: string };
 
 export type ApnsResult = "sent" | "gone" | "failed";
 
@@ -38,12 +29,7 @@ const GONE_REASONS = new Set(["BadDeviceToken", "Unregistered", "DeviceTokenNotF
 export function apnsPayload(alert: ApnsAlert): string {
   return JSON.stringify({
     aps: {
-      alert: {
-        "title-loc-key": alert.titleKey,
-        ...(alert.titleArgs ? { "title-loc-args": alert.titleArgs } : {}),
-        "loc-key": alert.bodyKey,
-        ...(alert.bodyArgs ? { "loc-args": alert.bodyArgs } : {}),
-      },
+      alert: { title: alert.title, body: alert.body },
       sound: "default",
     },
     link: alert.link,
