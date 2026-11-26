@@ -7,7 +7,7 @@ import { getServices } from "@/server/services";
 
 /**
  * The athlete's run traces as GeoJSON for the mobile globe.
- * With `areaId`, only runs whose trace touches that city are returned.
+ * With `areaId`, only the stretches run inside that city are returned, cut at its boundary.
  */
 export async function GET(request: Request) {
   const userOrError = await requireMobileUser(request);
@@ -19,16 +19,18 @@ export async function GET(request: Request) {
 
   const activities = await services.activities.listByUser(userOrError.id);
   let runs = activities.map(toRunSummary);
+  let runCount = runs.length;
   if (areaId != null && Number.isInteger(areaId) && areaId > 0) {
-    const inArea = await services.coverage.listActivityIdsInArea(userOrError.id, areaId);
-    runs = runs.filter((run) => inArea.has(run.id));
+    const partsInArea = await services.coverage.listRunPartsInArea(userOrError.id, areaId);
+    runCount = partsInArea.size;
+    runs = runs.flatMap((run) => (partsInArea.get(run.id) ?? []).map((polyline) => ({ ...run, polyline })));
   }
 
   const traces = toRunTraces(runs);
   const startPoints = toRunStartPoints(traces);
 
   return NextResponse.json({
-    runCount: runs.length,
+    runCount,
     traces,
     startPoints,
     bounds: getTracesBounds(traces),

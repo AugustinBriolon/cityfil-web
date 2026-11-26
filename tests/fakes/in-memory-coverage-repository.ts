@@ -48,8 +48,8 @@ export function createInMemoryCoverageRepository(
     async getUncoveredFocus() {
       return null;
     },
-    async listActivityIdsInArea() {
-      return new Set<string>();
+    async listRunPartsInArea() {
+      return new Map<string, string[]>();
     },
     async getUncoveredStreets() {
       return { type: "FeatureCollection", features: [] };

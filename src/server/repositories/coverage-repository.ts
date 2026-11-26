@@ -39,8 +39,11 @@ export type CoverageRepository = {
   listCityCoverage: (userId: string) => Promise<CityCoverage[]>;
   /** Covered street geometry per city (merged), for map layers; one city only when `areaId` is given. */
   getCoveredStreets: (userId: string, areaId?: number) => Promise<CoveredStreets>;
-  /** Strava ids of the athlete's runs whose trace touches the city boundary (cross-city runs included). */
-  listActivityIdsInArea: (userId: string, areaId: number) => Promise<Set<string>>;
+  /**
+   * The athlete's runs that touch the city, cut at its boundary: per Strava id, the encoded polyline of each
+   * stretch inside. A run that leaves the city and comes back has several.
+   */
+  listRunPartsInArea: (userId: string, areaId: number) => Promise<Map<string, string[]>>;
   /** Still-uncovered street geometry for one city (merged), for conquest map layers. */
   getUncoveredStreets: (userId: string, areaId: number) => Promise<CoveredStreets>;
   /** Centroid of still-uncovered street geometry — a practical “start here” for the next run. */
@@ -419,23 +422,35 @@ export function createCoverageRepository(
       return [row.lng, row.lat];
     },
 
-    async listActivityIdsInArea(userId, areaId) {
-      const rows = await database.execute<{ id: string }>(sql`
+    async listRunPartsInArea(userId, areaId) {
+      const rows = await database.execute<{ id: string; polyline: string }>(sql`
         WITH city AS (
           SELECT coalesce(area.boundary, catalog.boundary) AS boundary
           FROM (SELECT ${areaId}::bigint AS osm_relation_id) AS target
           LEFT JOIN areas AS area ON area.osm_relation_id = target.osm_relation_id
           LEFT JOIN city_catalog AS catalog ON catalog.osm_relation_id = target.osm_relation_id
         )
-        SELECT activities.strava_activity_id AS id
+        SELECT activities.strava_activity_id AS id, ST_AsEncodedPolyline(part.geom) AS polyline
         FROM activities
         CROSS JOIN city
+        CROSS JOIN LATERAL ST_Dump(
+          ST_CollectionExtract(
+            ST_Intersection(ST_LineFromEncodedPolyline(activities.summary_polyline), city.boundary),
+            2
+          )
+        ) AS part
         WHERE activities.user_id = ${userId}
           AND city.boundary IS NOT NULL
           AND activities.summary_polyline IS NOT NULL
           AND ST_Intersects(ST_LineFromEncodedPolyline(activities.summary_polyline), city.boundary)
+        ORDER BY activities.strava_activity_id, part.path
       `);
-      return new Set(rows.map((row) => String(row.id)));
+      const parts = new Map<string, string[]>();
+      for (const row of rows) {
+        const id = String(row.id);
+        parts.set(id, [...(parts.get(id) ?? []), row.polyline]);
+      }
+      return parts;
     },
 
     async getUncoveredStreets(userId, areaId) {
