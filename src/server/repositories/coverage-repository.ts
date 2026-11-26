@@ -429,21 +429,32 @@ export function createCoverageRepository(
           FROM (SELECT ${areaId}::bigint AS osm_relation_id) AS target
           LEFT JOIN areas AS area ON area.osm_relation_id = target.osm_relation_id
           LEFT JOIN city_catalog AS catalog ON catalog.osm_relation_id = target.osm_relation_id
+        ),
+        -- Cut segment by segment: a run that crosses itself makes ST_Intersection split it at every crossing.
+        pieces AS (
+          SELECT activities.strava_activity_id AS id, segment.path[1] AS n, piece.path[1] AS k, piece.geom
+          FROM activities
+          CROSS JOIN city
+          CROSS JOIN LATERAL ST_DumpSegments(ST_LineFromEncodedPolyline(activities.summary_polyline)) AS segment
+          CROSS JOIN LATERAL ST_Dump(ST_CollectionExtract(ST_Intersection(segment.geom, city.boundary), 2)) AS piece
+          WHERE activities.user_id = ${userId}
+            AND city.boundary IS NOT NULL
+            AND activities.summary_polyline IS NOT NULL
+            AND ST_Intersects(ST_LineFromEncodedPolyline(activities.summary_polyline), city.boundary)
+        ),
+        -- A new part starts wherever a piece does not continue the previous one (the run left the city).
+        marked AS (
+          SELECT *, CASE WHEN ST_Equals(ST_StartPoint(geom), lag(ST_EndPoint(geom)) OVER run) THEN 0 ELSE 1 END AS starts_part
+          FROM pieces
+          WINDOW run AS (PARTITION BY id ORDER BY n, k)
+        ),
+        numbered AS (
+          SELECT *, sum(starts_part) OVER (PARTITION BY id ORDER BY n, k) AS part FROM marked
         )
-        SELECT activities.strava_activity_id AS id, ST_AsEncodedPolyline(part.geom) AS polyline
-        FROM activities
-        CROSS JOIN city
-        CROSS JOIN LATERAL ST_Dump(
-          ST_CollectionExtract(
-            ST_Intersection(ST_LineFromEncodedPolyline(activities.summary_polyline), city.boundary),
-            2
-          )
-        ) AS part
-        WHERE activities.user_id = ${userId}
-          AND city.boundary IS NOT NULL
-          AND activities.summary_polyline IS NOT NULL
-          AND ST_Intersects(ST_LineFromEncodedPolyline(activities.summary_polyline), city.boundary)
-        ORDER BY activities.strava_activity_id, part.path
+        SELECT id, ST_AsEncodedPolyline(ST_MakeLine(geom ORDER BY n, k)) AS polyline
+        FROM numbered
+        GROUP BY id, part
+        ORDER BY id, min(n)
       `);
       const parts = new Map<string, string[]>();
       for (const row of rows) {

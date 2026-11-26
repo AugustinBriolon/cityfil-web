@@ -158,10 +158,22 @@ describe("street coverage in PostGIS", () => {
       await recordRun(runner.id, 10, encodeRoute(MAIN_STREET_LATITUDE, 2.001, 2.009));
       await recordRun(runner.id, 11, encodeRoute(MAIN_STREET_LATITUDE, 2.005, 2.05));
       await recordRun(runner.id, 12, encodeRoute(48.5, 2.5, 2.51));
+      // A figure eight crosses itself inside the city: still one stretch, not one per crossing.
+      await recordRun(
+        runner.id,
+        13,
+        polyline.encode([
+          [48.002, 2.002],
+          [48.008, 2.008],
+          [48.008, 2.002],
+          [48.002, 2.008],
+        ]),
+      );
 
       const parts = await coverage.listRunPartsInArea(runner.id, 1001);
 
-      expect([...parts.keys()].sort()).toEqual(["10", "11"]);
+      expect([...parts.keys()].sort()).toEqual(["10", "11", "13"]);
+      expect(parts.get("13")).toHaveLength(1);
       // Run 11 heads far east of the city: only its stretch inside is kept.
       const longitudes = polyline.decode(parts.get("11")![0]!).map(([, longitude]) => longitude);
       expect(Math.max(...longitudes)).toBeCloseTo(2.01, 3);
