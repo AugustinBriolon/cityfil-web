@@ -13,5 +13,6 @@ describe("score share card", () => {
   it("says the rank out of how many runners", () => {
     expect(scoreShareRank(preview)).toBe("#6 of 14 runners");
     expect(scoreShareRank({ ...preview, rank: 1, total: 1 })).toBe("#1 of 1 runner");
+    expect(scoreShareRank({ ...preview, rank: 1_284, total: 12_483 })).toBe("#1,284 of 12,483 runners");
   });
 });

@@ -36,7 +36,7 @@ export default async function ScoreSharePage({ params }: PageProps) {
       <section className="glass-panel flex w-full max-w-md flex-col gap-5 rounded-xl p-8">
         {preview ? (
           <>
-            <h1 className="text-3xl font-semibold tracking-tight">{preview.cityName}</h1>
+            <h1 className="text-3xl font-semibold tracking-tight [overflow-wrap:anywhere]">{preview.cityName}</h1>
             <p className="text-5xl font-semibold tracking-tight text-ember">{formatPercent(preview.share)}</p>
             <p className="text-sm text-muted-foreground">
               {[preview.runnerName, scoreShareRank(preview)].filter(Boolean).join(" · ")}

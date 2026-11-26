@@ -13,6 +13,9 @@ export function scoreShareHeadline(preview: ScoreSharePreview): string {
   return `${preview.runnerName ?? "A runner"} ran ${formatPercent(preview.share)} of ${preview.cityName}`;
 }
 
+const count = new Intl.NumberFormat("en-US");
+
 export function scoreShareRank(preview: ScoreSharePreview): string {
-  return `#${preview.rank} of ${preview.total} ${preview.total === 1 ? "runner" : "runners"}`;
+  const runners = preview.total === 1 ? "runner" : "runners";
+  return `#${count.format(preview.rank)} of ${count.format(preview.total)} ${runners}`;
 }

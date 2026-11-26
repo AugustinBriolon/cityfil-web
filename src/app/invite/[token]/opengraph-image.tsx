@@ -1,6 +1,5 @@
-import { ImageResponse } from "next/og";
-
 import { formatPercent } from "@/lib/format";
+import { renderOgImage } from "@/lib/og/render-og-image";
 import {
   inviteShareDescription,
   inviteShareHeadline,
@@ -21,7 +20,9 @@ type ImageProps = { params: Promise<{ token: string }> };
 export default async function InviteOpengraphImage({ params }: ImageProps) {
   const { token } = await params;
   const preview = await loadInvitePreview(token);
-  return new ImageResponse(<InviteCard preview={preview} />, { ...size });
+  // Same words the service uses when it knows no name: always drawable.
+  const plain = preview && { ...preview, cityName: "this city", inviterName: "A runner" };
+  return renderOgImage(<InviteCard preview={preview} />, () => <InviteCard preview={plain} />, size);
 }
 
 function InviteCard({ preview }: { preview: InviteSharePreview | null }) {
