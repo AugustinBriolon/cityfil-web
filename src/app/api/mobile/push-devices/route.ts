@@ -4,8 +4,8 @@ import { z } from "zod";
 import { isNextResponse, requireMobileUser } from "@/server/mobile/request-auth";
 import { getServices } from "@/server/services";
 
-/** Only Cityfil's own apps: a token is useless to APNs under any other topic, and must not reach other apps. */
-export const PUSH_TOPICS = ["run.cityfil.app", "run.cityfil.app.dev"] as const;
+/** Only Cityfil's own app: a token is useless to APNs under any other topic, and must not reach other apps. */
+export const PUSH_TOPICS = ["run.cityfil.app"] as const;
 
 const tokenSchema = z.string().regex(/^[0-9a-f]{64,200}$/i);
 

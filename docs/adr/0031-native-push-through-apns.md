@@ -19,9 +19,9 @@ you) need a way to reach the native app first. Expo's service could relay to APN
 - **HTTP/2 from Node** (`node:http2`, since `fetch` cannot), signed with an ES256 JWT built by `jose`, renewed
   every 50 minutes. One short-lived HTTP/2 session per notification: volumes are a few per runner per day.
 - **One row per device** in `push_devices` (token, runner, bundle id, APNs environment), registered by
-  `POST /api/mobile/push-devices` and removed by `DELETE` on sign-out. The bundle id travels with the token
-  because Debug (`run.cityfil.app.dev`, sandbox) and App Store builds are two apps to APNs; only Cityfil's two
-  bundle ids are accepted. A token APNs reports as gone is deleted.
+  `POST /api/mobile/push-devices` and removed by `DELETE` on sign-out. The bundle id travels with the token so the
+  sender addresses the right app, and only Cityfil's (`run.cityfil.app`) is accepted; the environment does too,
+  since Debug builds are reached through the APNs sandbox. A token APNs reports as gone is deleted.
 - **Words on the device**: payloads carry `title-loc-key` / `loc-key`, resolved against the app's own strings,
   so a notification reads in the runner's language without the server knowing it.
 

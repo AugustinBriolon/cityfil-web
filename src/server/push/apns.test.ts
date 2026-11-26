@@ -11,7 +11,7 @@ const credentials = {
   teamId: "TEAM123456",
   privateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
 };
-const device = { token: "f".repeat(64), topic: "run.cityfil.app.dev", environment: "sandbox" as const };
+const device = { token: "f".repeat(64), topic: "run.cityfil.app", environment: "sandbox" as const };
 const alert = { titleKey: "push.analysisComplete.title", bodyKey: "push.analysisComplete.body" };
 
 describe("apnsPayload", () => {
@@ -49,7 +49,7 @@ describe("createApnsSender", () => {
     const [origin, headers] = transport.mock.calls[0]!;
     expect(origin).toBe("https://api.sandbox.push.apple.com");
     expect(headers[":path"]).toBe(`/3/device/${device.token}`);
-    expect(headers["apns-topic"]).toBe("run.cityfil.app.dev");
+    expect(headers["apns-topic"]).toBe("run.cityfil.app");
     const jwt = headers.authorization!.replace("bearer ", "");
     expect(decodeProtectedHeader(jwt)).toEqual({ alg: "ES256", kid: "ABCDE12345" });
     expect(decodeJwt(jwt)).toEqual({ iss: "TEAM123456", iat: 1_800_000_000 });
