@@ -35,6 +35,7 @@ function harness({
     fail: vi.fn(),
     hasWork: vi.fn(async () => false),
     hasWorkForUser: vi.fn(async () => false),
+    countWorkForUser: vi.fn(async () => 0),
     hasImportRunning: vi.fn(async () => false),
     reviveStalledForUser: vi.fn(async () => false),
   };

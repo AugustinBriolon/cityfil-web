@@ -10,8 +10,14 @@ export type CityImportJob = {
 };
 
 export type CityImportQueueRepository = {
-  /** Enqueues cities that are not already imported into the shared `areas` table. */
-  enqueueMissing: (cities: Array<{ osmRelationId: number; name: string; priority?: number }>) => Promise<number>;
+  /**
+   * Enqueues cities that are not already imported into the shared `areas` table, highest priority first,
+   * at most `limit` of them when given.
+   */
+  enqueueMissing: (
+    cities: Array<{ osmRelationId: number; name: string; priority?: number }>,
+    limit?: number,
+  ) => Promise<number>;
   /** Claims the next pending job (or retries a failed one), marking it importing. */
   claimNext: () => Promise<CityImportJob | null>;
   complete: (osmRelationId: number) => Promise<void>;
@@ -27,6 +33,8 @@ export type CityImportQueueRepository = {
   hasWork: () => Promise<boolean>;
   /** Whether this runner still has cities waiting for street import. */
   hasWorkForUser: (userId: string) => Promise<boolean>;
+  /** How many of this runner's cities are queued or importing now (retryable failures included). */
+  countWorkForUser: (userId: string) => Promise<number>;
   /** Whether a street import is running now (claimed recently enough not to count as stale). */
   hasImportRunning: () => Promise<boolean>;
 };
@@ -40,8 +48,8 @@ const EXHAUSTED_REST_INTERVAL = sql`interval '1 hour'`;
 
 export function createCityImportQueueRepository(database: Database): CityImportQueueRepository {
   return {
-    async enqueueMissing(cities) {
-      if (cities.length === 0) return 0;
+    async enqueueMissing(cities, limit) {
+      if (cities.length === 0 || limit === 0) return 0;
 
       const unique = new Map(cities.map((city) => [city.osmRelationId, city]));
       const values = JSON.stringify(
@@ -61,6 +69,8 @@ export function createCityImportQueueRepository(database: Database): CityImportQ
           WHERE areas.osm_relation_id = (item->>'osmRelationId')::bigint
             AND areas.street_length_meters > 0
         )
+        ORDER BY COALESCE((item->>'priority')::int, 0) DESC
+        LIMIT ${limit ?? null}
         ON CONFLICT (osm_relation_id) DO UPDATE
         SET priority = GREATEST(city_import_queue.priority, EXCLUDED.priority),
             name = EXCLUDED.name
@@ -173,6 +183,19 @@ export function createCityImportQueueRepository(database: Database): CityImportQ
            OR (city_import_queue.status = 'failed' AND city_import_queue.attempts < ${MAX_ATTEMPTS})
       `);
       return (row?.remaining ?? 0) > 0;
+    },
+
+    async countWorkForUser(userId) {
+      const [row] = await database.execute<{ queued: number }>(sql`
+        SELECT count(*)::int AS queued
+        FROM city_import_queue
+        JOIN user_cities
+          ON user_cities.osm_relation_id = city_import_queue.osm_relation_id
+         AND user_cities.user_id = ${userId}
+        WHERE city_import_queue.status IN ('pending', 'importing')
+           OR (city_import_queue.status = 'failed' AND city_import_queue.attempts < ${MAX_ATTEMPTS})
+      `);
+      return row?.queued ?? 0;
     },
   };
 }

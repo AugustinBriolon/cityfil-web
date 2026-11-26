@@ -13,7 +13,9 @@ import type { UserCityRepository } from "@/server/repositories/user-city-reposit
 import {
   createCityDetectionService,
   extractDiscoveryPoints,
+  isPlausibleRun,
   MAX_NOMINATIM_LOOKUPS_PER_CHUNK,
+  MAX_QUEUED_IMPORTS_PER_RUNNER,
 } from "./city-detection-service";
 
 function encodeStart(lat: number, lon: number) {
@@ -122,6 +124,7 @@ describe("createCityDetectionService", () => {
       fail: vi.fn(),
       hasWork: vi.fn(async () => false),
       hasWorkForUser: vi.fn(async () => false),
+      countWorkForUser: vi.fn(async () => 0),
       hasImportRunning: vi.fn(async () => false),
       release: vi.fn(),
       reviveStalledForUser: vi.fn(async () => false),
@@ -160,7 +163,10 @@ describe("createCityDetectionService", () => {
 
     expect(nominatim.reverseGeocode).not.toHaveBeenCalled();
     expect(userCities.upsertMany).toHaveBeenCalledWith("user-1", [{ osmRelationId: 91738, name: "Colombes" }]);
-    expect(importQueue.enqueueMissing).toHaveBeenCalledWith([{ osmRelationId: 91738, name: "Colombes", priority: 2 }]);
+    expect(importQueue.enqueueMissing).toHaveBeenCalledWith(
+      [{ osmRelationId: 91738, name: "Colombes", priority: 2 }],
+      MAX_QUEUED_IMPORTS_PER_RUNNER,
+    );
     expect(coverage.matchPendingActivities).toHaveBeenCalledWith({ userId: "user-1" });
   });
 
@@ -183,7 +189,10 @@ describe("createCityDetectionService", () => {
     await expect(service.discoverCitiesForUser("user-1")).resolves.toMatchObject({ linkedCities: 1 });
     expect(nominatim.reverseGeocode).not.toHaveBeenCalled();
     expect(userCities.upsertMany).toHaveBeenCalledWith("user-1", [{ osmRelationId: 7444, name: "Paris" }]);
-    expect(importQueue.enqueueMissing).toHaveBeenCalledWith([{ osmRelationId: 7444, name: "Paris", priority: 3 }]);
+    expect(importQueue.enqueueMissing).toHaveBeenCalledWith(
+      [{ osmRelationId: 7444, name: "Paris", priority: 3 }],
+      MAX_QUEUED_IMPORTS_PER_RUNNER,
+    );
   });
 
   it("geocodes unknown clusters in chunks and enqueues missing street imports", async () => {
@@ -283,6 +292,84 @@ describe("createCityDetectionService", () => {
         { osmRelationId: 91738, name: "Colombes", priority: 4 },
         { osmRelationId: 7444, name: "Paris", priority: 1 },
       ]),
+      MAX_QUEUED_IMPORTS_PER_RUNNER,
     );
+  });
+
+  it("keeps a runner to a few queued street imports at a time", async () => {
+    activityRows = [buildActivity(1, 48.92, 2.25)];
+    vi.mocked(areas.findAreasContainingPoints).mockResolvedValue([
+      { osmRelationId: 91738, name: "Colombes", pointCount: 2 },
+    ]);
+    vi.mocked(areas.filterPointsOutsideAreas).mockResolvedValue([]);
+    vi.mocked(catalog.filterPointsOutside).mockResolvedValue([]);
+    const service = createCityDetectionService({
+      activities,
+      areas,
+      catalog,
+      userCities,
+      importQueue,
+      coverage,
+      nominatim,
+    });
+
+    vi.mocked(importQueue.countWorkForUser).mockResolvedValue(MAX_QUEUED_IMPORTS_PER_RUNNER - 1);
+    await service.discoverCitiesForUser("user-1");
+    expect(importQueue.enqueueMissing).toHaveBeenLastCalledWith(expect.any(Array), 1);
+
+    vi.mocked(importQueue.countWorkForUser).mockResolvedValue(MAX_QUEUED_IMPORTS_PER_RUNNER + 4);
+    await service.discoverCitiesForUser("user-1");
+    expect(importQueue.enqueueMissing).toHaveBeenLastCalledWith(expect.any(Array), 0);
+  });
+
+  it("still queues a city that an earlier pass linked but held back for the budget", async () => {
+    activityRows = [buildActivity(1, 48.92, 2.25)];
+    linked = [{ osmRelationId: 555, name: "Held back" }];
+    const service = createCityDetectionService({
+      activities,
+      areas,
+      catalog,
+      userCities,
+      importQueue,
+      coverage,
+      nominatim,
+    });
+
+    await service.discoverCitiesForUser("user-1");
+
+    expect(importQueue.enqueueMissing).toHaveBeenCalledWith(
+      expect.arrayContaining([{ osmRelationId: 555, name: "Held back", priority: 1 }]),
+      MAX_QUEUED_IMPORTS_PER_RUNNER,
+    );
+  });
+
+  it("opens no city from activities nobody could have run", async () => {
+    activityRows = [{ ...buildActivity(1, 35.68, 139.76), distanceMeters: 40_000, movingTimeSeconds: 3_600 }];
+    const service = createCityDetectionService({
+      activities,
+      areas,
+      catalog,
+      userCities,
+      importQueue,
+      coverage,
+      nominatim,
+    });
+
+    await expect(service.discoverCitiesForUser("user-1")).resolves.toEqual({
+      linkedCities: 0,
+      queuedImports: 0,
+      continues: false,
+    });
+    expect(importQueue.enqueueMissing).not.toHaveBeenCalled();
+  });
+});
+
+describe("isPlausibleRun", () => {
+  it("accepts runs and refuses rides, teleports and impossible distances", () => {
+    expect(isPlausibleRun({ distanceMeters: 5_000, movingTimeSeconds: 1_800 })).toBe(true);
+    expect(isPlausibleRun({ distanceMeters: 42_195, movingTimeSeconds: 7_235 })).toBe(true);
+    expect(isPlausibleRun({ distanceMeters: 40_000, movingTimeSeconds: 3_600 })).toBe(false);
+    expect(isPlausibleRun({ distanceMeters: 5_000, movingTimeSeconds: 0 })).toBe(false);
+    expect(isPlausibleRun({ distanceMeters: 250_000, movingTimeSeconds: 100_000 })).toBe(false);
   });
 });

@@ -12,6 +12,23 @@ import type { UserCityRepository } from "@/server/repositories/user-city-reposit
 /** Nominatim lookups per background chunk — keeps each `after()` invocation under serverless limits. */
 export const MAX_NOMINATIM_LOOKUPS_PER_CHUNK = 8;
 
+/**
+ * Cities one runner may have waiting for a street import at once. The pipeline discovers again after each
+ * import, so a real history still gets every city, a few at a time; an account stuffed with uploaded megacity
+ * runs cannot take the queue from everyone else (docs/audit/2026-11-data-audit.md, ADR 0030).
+ */
+export const MAX_QUEUED_IMPORTS_PER_RUNNER = 3;
+
+/** Faster than any runner over a whole activity (marathon record ≈ 5.9 m/s) or longer than an ultra: not a run. */
+const MAX_RUN_SPEED_MPS = 7;
+const MAX_RUN_METERS = 200_000;
+
+/** Only runs a person could have run may open new cities: GPX drawn on a website or a bike ride are left out. */
+export function isPlausibleRun(run: { distanceMeters: number; movingTimeSeconds: number }): boolean {
+  if (run.movingTimeSeconds <= 0 || run.distanceMeters > MAX_RUN_METERS) return false;
+  return run.distanceMeters / run.movingTimeSeconds <= MAX_RUN_SPEED_MPS;
+}
+
 export type CityDiscoveryResult = {
   /** Cities linked to the user in this chunk (known areas + newly geocoded). */
   linkedCities: number;
@@ -92,7 +109,7 @@ export function createCityDetectionService({
 }: Dependencies): CityDetectionService {
   return {
     async discoverCitiesForUser(userId) {
-      const runs = await activities.listByUser(userId);
+      const runs = (await activities.listByUser(userId)).filter(isPlausibleRun);
       if (runs.length === 0) return { linkedCities: 0, queuedImports: 0, continues: false };
 
       const discoveryPoints = extractDiscoveryPoints(runs);
@@ -124,7 +141,8 @@ export function createCityDetectionService({
         .filter((point) => !attemptedCells.has(gridCellKey(point)))
         .sort((a, b) => (cellCounts.get(gridCellKey(b)) ?? 0) - (cellCounts.get(gridCellKey(a)) ?? 0));
 
-      const alreadyLinked = new Set((await userCities.listByUser(userId)).map((city) => city.osmRelationId));
+      const linkedBefore = await userCities.listByUser(userId);
+      const alreadyLinked = new Set(linkedBefore.map((city) => city.osmRelationId));
       const chunk = unknownPoints.slice(0, MAX_NOMINATIM_LOOKUPS_PER_CHUNK);
       const continues = unknownPoints.length > chunk.length;
 
@@ -149,11 +167,14 @@ export function createCityDetectionService({
       await userCities.markGeocodeCells(userId, resolvedCells);
       await userCities.upsertMany(userId, geocoded);
 
-      const candidates = mergeCities(knownCities, geocoded).map((city) => ({
+      // Every linked city, not only this pass's: one held back by the import budget is geocoded once and
+      // must still be queued on a later pass.
+      const candidates = mergeCities(linkedBefore, knownCities, geocoded).map((city) => ({
         ...city,
         priority: priorityByCity.get(city.osmRelationId) ?? 1,
       }));
-      const queuedImports = await importQueue.enqueueMissing(candidates);
+      const budget = Math.max(0, MAX_QUEUED_IMPORTS_PER_RUNNER - (await importQueue.countWorkForUser(userId)));
+      const queuedImports = await importQueue.enqueueMissing(candidates, budget);
 
       // Fast path: match runs against streets already in the shared tables.
       await coverage.matchPendingActivities({ userId }).catch((error: unknown) => console.error(error));
