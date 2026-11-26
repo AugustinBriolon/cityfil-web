@@ -79,7 +79,11 @@ export function createApnsSender(
         },
         apnsPayload(alert),
       );
-      return apnsOutcome(status, reason);
+      const outcome = apnsOutcome(status, reason);
+      // Apple's reason is the only clue to a wrong key, team or environment: never drop it.
+      if (outcome !== "sent")
+        console.error(`APNs refused a push: ${status} ${reason ?? ""}`.trim(), device.environment);
+      return outcome;
     },
   };
 }
