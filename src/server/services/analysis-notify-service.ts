@@ -12,6 +12,7 @@ export type AnalysisNotifyService = {
 export const ANALYSIS_COMPLETE_ALERT = {
   titleKey: "push.analysisComplete.title",
   bodyKey: "push.analysisComplete.body",
+  link: "cityfil://map",
 };
 
 type Dependencies = {
