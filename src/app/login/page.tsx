@@ -16,8 +16,7 @@ import { signInWithStrava } from "./actions";
 
 export const metadata: Metadata = {
   title: "Sign in · Cityfil",
-  description:
-    "Street-by-street city conquest. Connect Strava, paint your coverage, invite rivals for Founder, Conqueror and Keeper.",
+  description: "See every street you've run on one map. Connect Strava to start.",
 };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
@@ -39,13 +38,12 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       <div className="pointer-events-none absolute inset-x-3 bottom-[max(0.5rem,env(safe-area-inset-bottom,0px))] sm:inset-x-auto sm:top-1/2 sm:right-10 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-y-1/2">
         <FadeInStagger className="glass-panel pointer-events-auto flex max-h-[calc(100dvh-2rem)] scroll-fade flex-col gap-6 overflow-y-auto rounded-xl p-6 sm:gap-8 sm:p-8">
           <FadeInItem className="flex flex-col gap-4">
-            <p className="eyebrow text-ember">Street conquest</p>
             <h1 className="text-3xl leading-[1.05] font-semibold tracking-tight text-balance sm:text-4xl">
-              Every street you&apos;ve run, filled in.
+              Every street you&apos;ve run, on one map.
             </h1>
             <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">
-              Connect Strava to paint your city street by street. Invite rivals onto one board — Founder, Conqueror and
-              Keeper are waiting. On iOS, plan unfinished streets and record runs that update coverage.
+              Connect Strava to see the streets you&apos;ve run in each city. The iPhone app also plans routes through
+              the ones you haven&apos;t and guides you by voice.
             </p>
           </FadeInItem>
 

@@ -17,8 +17,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const DESCRIPTION =
-  "Run every street in your city: Cityfil maps the streets you've conquered and plans a run through the rest.";
+const DESCRIPTION = "Cityfil shows every street you've run on one map and plans runs through the ones you haven't.";
 
 // Matches --space so Safari Liquid Glass / status-bar tint samples the night sky, not a flat black strip.
 const THEME_COLOR = "#0c0e18";

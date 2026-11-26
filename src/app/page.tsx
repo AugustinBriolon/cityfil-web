@@ -5,9 +5,9 @@ import { LandingPage } from "@/components/landing/landing-page";
 import { getCurrentUser } from "@/server/session";
 
 export const metadata: Metadata = {
-  title: "Cityfil · Run every street in your city",
+  title: "Cityfil · Every street you've run, on one map",
   description:
-    "Cityfil turns your Strava runs into the share of each city you've conquered, then plans a run through the streets you haven't.",
+    "Connect Strava and Cityfil shows how much of each city you've already run, then plans a route through the streets you haven't.",
 };
 
 export default async function HomePage() {

@@ -31,7 +31,7 @@ export default function OpengraphImage() {
         </svg>
         <div style={{ fontSize: 96, fontWeight: 600, color: "#f5f3ee", letterSpacing: -2 }}>Cityfil</div>
       </div>
-      <div style={{ fontSize: 34, color: "#a9a6ad", letterSpacing: 2 }}>Every street, filled in</div>
+      <div style={{ fontSize: 34, color: "#a9a6ad", letterSpacing: 2 }}>Every street you&apos;ve run, on one map</div>
     </div>,
     { ...size },
   );

@@ -5,7 +5,7 @@ test.describe("sign-in", () => {
     await page.goto("/login");
 
     await expect(page).toHaveTitle("Sign in · Cityfil");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Every street you've run, filled in.");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Every street you've run, on one map.");
     await expect(page.getByRole("region", { name: "Planet preview" }).locator("canvas")).toBeVisible();
     await expect(page.getByRole("button", { name: "Connect with Strava" })).toBeEnabled();
     await expect(page.getByRole("link", { name: "Get Cityfil on the App Store" })).toBeVisible();
@@ -26,7 +26,7 @@ test.describe("sign-in", () => {
 test.describe("public pages", () => {
   test("presents the app on the home page", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Run every street in your city.");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Every street you've run, on one map.");
     await expect(page.getByRole("link", { name: "Download on the App Store" }).first()).toHaveAttribute(
       "href",
       /apps\.apple\.com/,

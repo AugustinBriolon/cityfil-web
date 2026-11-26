@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Cityfil",
     short_name: "Cityfil",
-    description: "Run every street in your city.",
+    description: "Every street you've run, on one map.",
     start_url: "/",
     display: "standalone",
     background_color: "#0c0e18",

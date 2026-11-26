@@ -79,22 +79,19 @@ export function LandingPage() {
         <section className="grid items-center gap-14 pt-10 lg:grid-cols-[1.05fr_1fr] lg:pt-16">
           <FadeInStagger className="flex flex-col gap-6">
             <FadeInItem>
-              <p className="eyebrow text-ember">Street conquest for runners</p>
-            </FadeInItem>
-            <FadeInItem>
               <h1 className="text-5xl leading-[1.02] font-semibold tracking-tight text-balance sm:text-6xl">
-                Run every street in your city.
+                Every street you&apos;ve run, on one map.
               </h1>
             </FadeInItem>
             <FadeInItem>
               <p className="max-w-xl text-lg leading-relaxed text-pretty text-muted-foreground">
-                Cityfil turns your Strava runs into a map of the streets you&apos;ve conquered, city by city, in
-                percent. Then it plans a run through the ones you haven&apos;t, and guides you street by street.
+                Connect Strava and Cityfil shows how much of each city you&apos;ve already run, from all your past runs.
+                Then it plans a route through the streets you haven&apos;t, with voice directions.
               </p>
             </FadeInItem>
             <FadeInItem className="flex flex-wrap items-center gap-x-5 gap-y-3">
               <AppStoreButton />
-              <span className="text-sm text-muted-foreground">Free · iPhone · Works with Strava</span>
+              <span className="text-sm text-muted-foreground">Free · iPhone · Compatible with Strava</span>
             </FadeInItem>
           </FadeInStagger>
 
@@ -118,23 +115,20 @@ export function LandingPage() {
         </section>
 
         <section aria-labelledby="how" className="flex flex-col gap-10">
-          <div className="flex flex-col gap-3">
-            <p className="eyebrow text-ember">How it works</p>
-            <h2 id="how" className="text-3xl font-semibold tracking-tight sm:text-4xl">
-              From your past runs to your next street.
-            </h2>
-          </div>
+          <h2 id="how" className="text-3xl font-semibold tracking-tight sm:text-4xl">
+            How it works
+          </h2>
           <ol className="grid gap-4 md:grid-cols-3">
             <Step icon={<ScanLine className="size-5" />} title="Connect Strava">
-              Your runs are imported and matched to the streets they cover. No account to create, nothing to log twice.
+              Cityfil imports your runs and finds every street they went through. No account to create, nothing to log
+              twice.
             </Step>
-            <Step icon={<Flag className="size-5" />} title="See every city in percent">
-              Conquered streets glow in ember, the ones left in gold. Each city shows how much is yours and what
-              remains.
+            <Step icon={<Flag className="size-5" />} title="See how much of each city you've run">
+              Streets you&apos;ve run are orange, the rest gold. Each city shows a percentage and the kilometres left.
             </Step>
             <Step icon={<Route className="size-5" />} title="Run what's left">
-              Pick a distance. Cityfil chains unfinished streets into one route from where you stand and tells you when
-              a single run can finish the city.
+              Pick a distance. Cityfil links streets you haven&apos;t run into one route that starts where you are, and
+              tells you when a single run can finish the city.
             </Step>
           </ol>
         </section>
@@ -146,18 +140,18 @@ export function LandingPage() {
               Every city has a podium.
             </h2>
             <p className="text-lg leading-relaxed text-pretty text-muted-foreground">
-              See where you rank among everyone running the same streets, invite friends onto the board, and race for
-              the titles that stay with a city.
+              See where you rank among runners in the same city and invite friends onto the board. Each city has three
+              titles:
             </p>
             <ul className="flex flex-col gap-5">
               <Title icon={<Flag className="size-5" />} name="Founder">
-                The first runner to finish every street. Permanent.
+                The first runner to run every street. Nobody can take it after that.
               </Title>
               <Title icon={<Medal className="size-5" />} name="Conqueror">
                 Finished it in the fewest kilometres.
               </Title>
               <Title icon={<Crown className="size-5" />} name="Keeper">
-                Re-ran the most of the city this month. Up for grabs every month.
+                Ran the most of the city this month. It starts over each month.
               </Title>
             </ul>
           </div>
@@ -175,7 +169,7 @@ export function LandingPage() {
 
         <section className="flex flex-col items-center gap-6 text-center">
           <h2 className="max-w-2xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-            Your city is waiting. Start with the street outside.
+            See how much of your city you&apos;ve already run.
           </h2>
           <AppStoreButton />
         </section>
