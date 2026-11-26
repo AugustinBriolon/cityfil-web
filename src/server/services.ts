@@ -68,7 +68,7 @@ function buildServices(database: Database) {
     strava,
     tokens,
     coverage,
-    runNotify: createRunNotifyService({ devices: pushDevices, apns }),
+    runNotify: createRunNotifyService({ devices: pushDevices, apns, coverage, conquests, users }),
   });
 
   return {

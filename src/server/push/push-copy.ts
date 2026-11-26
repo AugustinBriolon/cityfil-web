@@ -31,3 +31,25 @@ export function runSyncedCopy(gain: { gainedMeters: number; name: string; share:
         body: `Your run is in: ${share} of the city is yours. Go again?`,
       };
 }
+
+/** "2e" / "2nd": the place a runner drops to. */
+function place(rank: number, locale: string): string {
+  if (isFrench(locale)) return rank === 1 ? "1re" : `${rank}e`;
+  const suffix = { one: "st", two: "nd", few: "rd", other: "th" }[
+    new Intl.PluralRules("en", { type: "ordinal" }).select(rank) as "one" | "two" | "few" | "other"
+  ];
+  return `${rank}${suffix}`;
+}
+
+/** Drama: someone took your place. `name` is null when the ranking would not name them (a private runner). */
+export function passedCopy(pass: { name: string | null; city: string; rank: number }, locale: string): PushCopy {
+  return isFrench(locale)
+    ? {
+        title: `😱 ${pass.name ?? "Un coureur"} t'a doublé à ${pass.city}`,
+        body: `Tu tombes à la ${place(pass.rank, locale)} place. Tu vas laisser passer ça ? 👊`,
+      }
+    : {
+        title: `😱 ${pass.name ?? "A runner"} just passed you in ${pass.city}`,
+        body: `You drop to ${place(pass.rank, locale)}. Are you letting that slide? 👊`,
+      };
+}

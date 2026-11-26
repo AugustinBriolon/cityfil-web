@@ -23,7 +23,7 @@ type Dependencies = {
   tokens: StravaTokenService;
   coverage: Pick<CoverageRepository, "matchPendingActivities" | "listCityCoverage">;
   /** Absent: runs are imported without telling the runner what they conquered. */
-  runNotify?: Pick<RunNotifyService, "announceGain">;
+  runNotify?: Pick<RunNotifyService, "announceRun">;
 };
 
 /**
@@ -72,7 +72,7 @@ export function createStravaWebhookService({
         if (runNotify && matched) {
           await coverage
             .listCityCoverage(account.userId)
-            .then((after) => runNotify.announceGain(account.userId, before, after))
+            .then((after) => runNotify.announceRun(account.userId, before, after))
             .catch((error: unknown) => console.error("Run notification failed", error));
         }
       } else {

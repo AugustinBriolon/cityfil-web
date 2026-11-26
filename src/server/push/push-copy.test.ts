@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { analysisCompleteCopy, runSyncedCopy } from "./push-copy";
+import { analysisCompleteCopy, passedCopy, runSyncedCopy } from "./push-copy";
 
 const plain = (text: string) => text.replace(/[  ]/g, " ");
 
@@ -19,5 +19,16 @@ describe("push copy", () => {
       "Ta course est passée : 14 % de la ville est à toi. On remet ça ?",
     );
     expect(plain(runSyncedCopy(gain, "en-US").title)).toBe("🔥 +1.2 km conquered in Trappes");
+  });
+
+  it("dramatises being passed, naming the place in each language", () => {
+    expect(passedCopy({ name: "Thomas", city: "Trappes", rank: 2 }, "fr-FR")).toEqual({
+      title: "😱 Thomas t'a doublé à Trappes",
+      body: "Tu tombes à la 2e place. Tu vas laisser passer ça ? 👊",
+    });
+    expect(passedCopy({ name: null, city: "Trappes", rank: 3 }, "en-US")).toEqual({
+      title: "😱 A runner just passed you in Trappes",
+      body: "You drop to 3rd. Are you letting that slide? 👊",
+    });
   });
 });
