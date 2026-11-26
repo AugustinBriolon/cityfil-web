@@ -2,6 +2,7 @@ import { OgBrand } from "@/components/brand/og-brand";
 import { scoreShareRank, type ScoreSharePreview } from "@/lib/conquest/score-share-card";
 import { formatPercent } from "@/lib/format";
 import { renderOgImage } from "@/lib/og/render-og-image";
+import { visualOrder } from "@/lib/og/visual-order";
 import { loadScorePreview } from "@/server/conquest/load-score-preview";
 
 export const runtime = "nodejs";
@@ -17,7 +18,12 @@ const LONG_CITY_NAME = 24;
 
 export default async function ScoreOpengraphImage({ params }: ImageProps) {
   const { areaId, userId } = await params;
-  const preview = await loadScorePreview(areaId, userId);
+  const loaded = await loadScorePreview(areaId, userId);
+  const preview = loaded && {
+    ...loaded,
+    cityName: visualOrder(loaded.cityName),
+    runnerName: loaded.runnerName && visualOrder(loaded.runnerName),
+  };
   // The fallback keeps the score and drops the two strings that can be in a script the renderer cannot draw.
   const plain = preview && { ...preview, cityName: "", runnerName: null };
   return renderOgImage(<ScoreCard preview={preview} />, () => <ScoreCard preview={plain} />, size);

@@ -1,5 +1,6 @@
 import { formatPercent } from "@/lib/format";
 import { renderOgImage } from "@/lib/og/render-og-image";
+import { visualOrder } from "@/lib/og/visual-order";
 import {
   inviteShareDescription,
   inviteShareHeadline,
@@ -19,7 +20,12 @@ type ImageProps = { params: Promise<{ token: string }> };
 
 export default async function InviteOpengraphImage({ params }: ImageProps) {
   const { token } = await params;
-  const preview = await loadInvitePreview(token);
+  const loaded = await loadInvitePreview(token);
+  const preview = loaded && {
+    ...loaded,
+    cityName: visualOrder(loaded.cityName),
+    inviterName: visualOrder(loaded.inviterName),
+  };
   // Same words the service uses when it knows no name: always drawable.
   const plain = preview && { ...preview, cityName: "this city", inviterName: "A runner" };
   return renderOgImage(<InviteCard preview={preview} />, () => <InviteCard preview={plain} />, size);
