@@ -52,7 +52,7 @@ describe("createRunNotifyService", () => {
     await service.announceGain("user-1", [city(1, "Trappes", 200)], [city(1, "Trappes", 1_434)]);
 
     const [, alert] = send.mock.calls[0]!;
-    expect(alert.title.replace(/[\u00a0\u202f]/g, " ")).toBe("+1,2 km conquis à Trappes 🔥");
+    expect(alert.title.replace(/[\u00a0\u202f]/g, " ")).toBe("🔥 +1,2 km conquis à Trappes");
     expect(alert.link).toBe("cityfil://city/1");
   });
 

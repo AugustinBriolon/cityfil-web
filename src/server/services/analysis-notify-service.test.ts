@@ -62,7 +62,7 @@ describe("createAnalysisNotifyService", () => {
 
     await expect(service.notifyIfPending("user-1")).resolves.toBe("sent");
     expect(send).toHaveBeenCalledWith(phone, {
-      title: "Ta carte est prête 🗺️",
+      title: "🗺️ Ta carte est prête",
       body: "Toutes tes courses sont posées. Viens voir les rues qui t'appartiennent déjà 👀",
       link: "cityfil://map",
     });

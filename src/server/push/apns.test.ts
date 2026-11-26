@@ -12,12 +12,12 @@ const credentials = {
   privateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
 };
 const device = { token: "f".repeat(64), topic: "run.cityfil.app", environment: "sandbox" as const, locale: "fr-FR" };
-const alert = { title: "Ta carte est prête 🗺️", body: "Toutes tes courses sont posées.", link: "cityfil://map" };
+const alert = { title: "🗺️ Ta carte est prête", body: "Toutes tes courses sont posées.", link: "cityfil://map" };
 
 describe("apnsPayload", () => {
   it("carries the finished words and where a tap goes", () => {
     expect(JSON.parse(apnsPayload({ ...alert, link: "cityfil://city/49540" }))).toEqual({
-      aps: { alert: { title: "Ta carte est prête 🗺️", body: "Toutes tes courses sont posées." }, sound: "default" },
+      aps: { alert: { title: "🗺️ Ta carte est prête", body: "Toutes tes courses sont posées." }, sound: "default" },
       link: "cityfil://city/49540",
     });
   });
