@@ -4,7 +4,7 @@ Date: 2026-11-26
 
 ## Status
 
-Accepted
+Superseded by [ADR 0032](0032-share-links-open-the-app-in-the-sender-s-language.md)
 
 ## Context
 
