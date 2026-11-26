@@ -40,6 +40,18 @@ describe("inviteShareDescription", () => {
   });
 });
 
+describe("in French", () => {
+  it("challenges, scores and names the titles in French", () => {
+    expect(inviteShareHeadline(base, "fr")).toBe("Ada te défie à Rennes");
+    expect(inviteShareDescription(base, "fr")).toBe(
+      "Son score : 12,3 %. Fondateur · Conquérant · Gardien encore à prendre.",
+    );
+    expect(inviteShareDescription({ ...base, founderOpen: false, conquerorOpen: false, keeperOpen: false }, "fr")).toBe(
+      "Son score : 12,3 %. Les titres sont pris, mais les rues restent à courir.",
+    );
+  });
+});
+
 describe("titleChips", () => {
   it("keeps Founder, Conqueror, Keeper in that order", () => {
     expect(titleChips({ ...base, founderOpen: false, keeperOpen: true })).toEqual([

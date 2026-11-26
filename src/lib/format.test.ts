@@ -28,6 +28,7 @@ describe("formatters", () => {
     expect(formatPercent(0.99999)).toBe("99.9%");
     expect(formatPercent(1)).toBe("100.0%");
     expect(formatPercent(0)).toBe("0.0%");
+    expect(formatPercent(0.342, "fr")).toBe("34,2 %");
   });
 
   it("formats an ISO date as a run's calendar date", () => {

@@ -2,24 +2,26 @@ import { formatPercent } from "@/lib/format";
 import { renderOgImage } from "@/lib/og/render-og-image";
 import { visualOrder } from "@/lib/og/visual-order";
 import {
+  inviteShareCopy,
   inviteShareDescription,
   inviteShareHeadline,
   titleChips,
   type InviteSharePreview,
 } from "@/lib/conquest/invite-share-card";
+import { shareLanguage, type ShareLanguage } from "@/lib/conquest/share-language";
 import { OgBrand as Brand } from "@/components/brand/og-brand";
 import { loadInvitePreview } from "@/server/conquest/load-invite-preview";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
-export const alt = "Cityfil city rivalry invite";
 
-type ImageProps = { params: Promise<{ token: string }> };
+const size = { width: 1200, height: 630 };
 
-export default async function InviteOpengraphImage({ params }: ImageProps) {
+/** The invite card chat apps show for `/invite/:token`, in the `?lang=` it was shared in (see the share card). */
+export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const language = shareLanguage(new URL(request.url).searchParams.get("lang"), request.headers.get("accept-language"));
+  const copy = inviteShareCopy[language];
   const loaded = await loadInvitePreview(token);
   const preview = loaded && {
     ...loaded,
@@ -27,11 +29,16 @@ export default async function InviteOpengraphImage({ params }: ImageProps) {
     inviterName: visualOrder(loaded.inviterName),
   };
   // Same words the service uses when it knows no name: always drawable.
-  const plain = preview && { ...preview, cityName: "this city", inviterName: "A runner" };
-  return renderOgImage(<InviteCard preview={preview} />, () => <InviteCard preview={plain} />, size);
+  const plain = preview && { ...preview, cityName: copy.thisCity, inviterName: copy.someone };
+  return renderOgImage(
+    <InviteCard preview={preview} language={language} />,
+    () => <InviteCard preview={plain} language={language} />,
+    size,
+  );
 }
 
-function InviteCard({ preview }: { preview: InviteSharePreview | null }) {
+function InviteCard({ preview, language }: { preview: InviteSharePreview | null; language: ShareLanguage }) {
+  const copy = inviteShareCopy[language];
   if (!preview) {
     return (
       <div
@@ -48,15 +55,15 @@ function InviteCard({ preview }: { preview: InviteSharePreview | null }) {
       >
         <Brand />
         <div style={{ marginTop: 48, fontSize: 64, fontWeight: 600, color: "#f5f3ee", letterSpacing: -1.5 }}>
-          This invite expired
+          {copy.expiredCard}
         </div>
-        <div style={{ marginTop: 20, fontSize: 32, color: "#a9a6ad" }}>Ask your rival for a new 14-day link.</div>
+        <div style={{ marginTop: 20, fontSize: 32, color: "#a9a6ad" }}>{copy.expiredCardBody}</div>
       </div>
     );
   }
 
-  const share = preview.inviterShare == null ? "—" : formatPercent(preview.inviterShare);
-  const chips = titleChips(preview);
+  const share = preview.inviterShare == null ? "—" : formatPercent(preview.inviterShare, language);
+  const chips = titleChips(preview, language);
 
   return (
     <div
@@ -73,7 +80,9 @@ function InviteCard({ preview }: { preview: InviteSharePreview | null }) {
     >
       <Brand />
       <div style={{ display: "flex", flexDirection: "column" }}>
-        <div style={{ fontSize: 28, color: "#ff8a4c", letterSpacing: 4, textTransform: "uppercase" }}>City rivalry</div>
+        <div style={{ fontSize: 28, color: "#ff8a4c", letterSpacing: 4, textTransform: "uppercase" }}>
+          {copy.eyebrow}
+        </div>
         <div
           style={{
             marginTop: 16,
@@ -84,10 +93,10 @@ function InviteCard({ preview }: { preview: InviteSharePreview | null }) {
             lineHeight: 1.05,
           }}
         >
-          {inviteShareHeadline(preview)}
+          {inviteShareHeadline(preview, language)}
         </div>
         <div style={{ marginTop: 20, fontSize: 32, color: "#a9a6ad", lineHeight: 1.35 }}>
-          {inviteShareDescription(preview)}
+          {inviteShareDescription(preview, language)}
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
@@ -110,7 +119,7 @@ function InviteCard({ preview }: { preview: InviteSharePreview | null }) {
                 fontWeight: 600,
               }}
             >
-              {chip.name} {chip.open ? "open" : "claimed"}
+              {chip.name} {chip.open ? copy.open : copy.claimed}
             </div>
           ))}
         </div>

@@ -12,11 +12,18 @@ export function formatHours(seconds: number): string {
   return numberFormatter.format(seconds / 3600);
 }
 
-const percentFormatter = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const percentFormatters = {
+  en: new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+  fr: new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+};
 
-/** Formats a 0–1 share, rounding down so a city never shows 100% before every street is covered. */
-export function formatPercent(share: number): string {
-  return `${percentFormatter.format(Math.floor(share * 1000) / 10)}%`;
+/**
+ * Formats a 0–1 share, rounding down so a city never shows 100% before every street is covered.
+ * French writes "34,2 %", with a narrow no-break space before the sign.
+ */
+export function formatPercent(share: number, language: "en" | "fr" = "en"): string {
+  const value = percentFormatters[language].format(Math.floor(share * 1000) / 10);
+  return language === "fr" ? `${value} %` : `${value}%`;
 }
 
 // UTC, not the viewer's timezone: we only store Strava's `start_date` (UTC), not `start_date_local`,
