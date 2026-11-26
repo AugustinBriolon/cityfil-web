@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createAccountSummaryRepository } from "@/server/repositories/account-summary-repository";
 import { createActivityRepository } from "@/server/repositories/activity-repository";
+import { createPushDeviceRepository } from "@/server/repositories/push-device-repository";
 import { createStravaAccountRepository } from "@/server/repositories/strava-account-repository";
 import { createUserCityRepository } from "@/server/repositories/user-city-repository";
 import { createUserRepository } from "@/server/repositories/user-repository";
@@ -17,6 +18,7 @@ const accounts = createStravaAccountRepository(testDatabase.database);
 const activities = createActivityRepository(testDatabase.database);
 const userCities = createUserCityRepository(testDatabase.database);
 const accountSummaries = createAccountSummaryRepository(testDatabase.database);
+const pushDevices = createPushDeviceRepository(testDatabase.database);
 
 const tokens = {
   accessTokenEncrypted: "encrypted-access",
@@ -35,6 +37,36 @@ describe("Postgres repositories", () => {
 
   afterAll(async () => {
     await testDatabase.close();
+  });
+
+  describe("push devices", () => {
+    const device = { token: "c".repeat(64), topic: "run.cityfil.app", environment: "production" as const };
+
+    it("moves a device to the runner who signs in on it last, and drops it with the account", async () => {
+      const ada = await linkAthlete(51, "Ada");
+      const bob = await linkAthlete(52, "Bob");
+
+      await pushDevices.register(ada.id, device);
+      await pushDevices.register(bob.id, { ...device, environment: "sandbox" });
+
+      expect(await pushDevices.listForUser(ada.id)).toEqual([]);
+      expect(await pushDevices.listForUser(bob.id)).toEqual([{ ...device, environment: "sandbox" }]);
+
+      await users.delete(bob.id);
+      expect(await pushDevices.listForUser(bob.id)).toEqual([]);
+    });
+
+    it("only lets the device's runner unregister it", async () => {
+      const ada = await linkAthlete(53, "Ada");
+      const bob = await linkAthlete(54, "Bob");
+      await pushDevices.register(ada.id, device);
+
+      await pushDevices.unregister(bob.id, device.token);
+      expect(await pushDevices.listForUser(ada.id)).toHaveLength(1);
+
+      await pushDevices.unregister(ada.id, device.token);
+      expect(await pushDevices.listForUser(ada.id)).toEqual([]);
+    });
   });
 
   describe("strava account ↔ user binding", () => {

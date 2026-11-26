@@ -298,6 +298,22 @@ export const reviewAccessAttempts = pgTable(
   (table) => [index().on(table.attemptedAt), index().on(table.clientKey, table.attemptedAt)],
 );
 
+/** Devices that accepted notifications, one row per APNs token. */
+export const pushDevices = pgTable(
+  "push_devices",
+  {
+    token: text().primaryKey(),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The app's bundle id: Debug and App Store builds are two apps to APNs. */
+    topic: text().notNull(),
+    environment: text().$type<"sandbox" | "production">().notNull(),
+    ...timestamps,
+  },
+  (table) => [index().on(table.userId)],
+);
+
 export type User = typeof users.$inferSelect;
 export type StravaAccount = typeof stravaAccounts.$inferSelect;
 export type Activity = typeof activities.$inferSelect;

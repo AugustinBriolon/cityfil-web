@@ -72,7 +72,8 @@ scripts/seed-review-account.ts --confirm`: runs planned on real streets in two c
   ([ADR 0029](docs/adr/0029-city-score-share-cards.md)).
 - First Strava import returns after one activity page so the globe can draw traces immediately; remaining pages
   and OpenStreetMap street imports continue in `after()` hops, with the runner's cities jumping the import queue.
-  When that work finishes, Expo sends a push if a token was registered (`PATCH /api/mobile/me` `expoPushToken`).
+  When that work finishes, a push goes to every device the runner registered (`POST /api/mobile/push-devices`,
+  through APNs, [ADR 0031](docs/adr/0031-native-push-through-apns.md)) and to the older app's Expo token.
   A per-minute cron restarts any of that work left with nothing driving it
   ([ADR 0028](docs/adr/0028-queue-draining-import-hops-and-a-cron-watchdog.md)).
   See [ADR 0011](docs/adr/0011-first-login-sync-returns-a-page-then-notifies.md). Only plausible runs (≤ 7 m/s,
@@ -170,6 +171,9 @@ Defined in [`.env.example`](.env.example), loaded from `.env.local`.
 | `STRAVA_WEBHOOK_VERIFY_TOKEN` | Shared secret echoed by Strava when validating the subscription | `openssl rand -hex 24`                              |
 | `ADMIN_PASSWORD_HASH`         | Optional; enables `/admin` (username `admin`). Hash only        | `printf %s 'password' \| pnpm admin:hash-password`  |
 | `CRON_SECRET`                 | Optional; lets Vercel's per-minute cron restart stalled imports | `openssl rand -hex 24`                              |
+| `APNS_KEY_ID`                 | Optional, with the two below; enables native push (APNs)        | Apple Developer → Keys → APNs key, 10 characters    |
+| `APNS_TEAM_ID`                | Apple developer team id                                         | Apple Developer → Membership, 10 characters         |
+| `APNS_PRIVATE_KEY`            | The APNs key's `.p8` file, whole (PEM text)                     | Downloaded once when the key is created             |
 
 ### Strava webhooks (optional locally)
 

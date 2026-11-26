@@ -24,6 +24,18 @@ const serverEnvSchema = z.object({
   REVIEW_ACCESS_USER_ID: z.string().trim().pipe(z.uuid()).optional().catch(undefined),
   /** Vercel sends it as a bearer token on cron requests. Absent → the pipeline watchdog route refuses every call. */
   CRON_SECRET: z.string().min(16).optional(),
+  /**
+   * Apple push (APNs) signing key, all three or none: key id, team id and the `.p8` key's PEM text.
+   * Absent → native push is off and only the Expo token, if any, is notified.
+   */
+  APNS_KEY_ID: z.string().trim().length(10).optional(),
+  APNS_TEAM_ID: z.string().trim().length(10).optional(),
+  // A key pasted on one line keeps its line breaks as "\n": PEM needs real ones.
+  APNS_PRIVATE_KEY: z
+    .string()
+    .includes("BEGIN PRIVATE KEY")
+    .transform((pem) => pem.replaceAll("\\n", "\n"))
+    .optional(),
   /** Absent → the admin console is disabled. Generate with `pnpm admin:hash-password`. */
   ADMIN_PASSWORD_HASH: z
     .string()

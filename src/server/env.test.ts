@@ -36,6 +36,14 @@ describe("parseServerEnv", () => {
     expect(attempt).not.toThrow(/short-secret-value/);
   });
 
+  it("restores the line breaks of an APNs key pasted on one line", () => {
+    const env = parseServerEnv({
+      ...validEnv,
+      APNS_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----",
+    });
+    expect(env.APNS_PRIVATE_KEY).toBe("-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----");
+  });
+
   it("reads review access settings saved with spaces or a line break around them", () => {
     const env = parseServerEnv({
       ...validEnv,

@@ -11,9 +11,11 @@ import { createAccountSummaryRepository } from "./repositories/account-summary-r
 import { createActivityRepository } from "./repositories/activity-repository";
 import { createAreaRepository } from "./repositories/area-repository";
 import { createCityCatalogRepository } from "./repositories/city-catalog-repository";
+import { createApnsSender } from "./push/apns";
 import { createCityImportQueueRepository } from "./repositories/city-import-queue-repository";
 import { createConquestRepository } from "./repositories/conquest-repository";
 import { createCoverageRepository } from "./repositories/coverage-repository";
+import { createPushDeviceRepository } from "./repositories/push-device-repository";
 import { createReviewAccessRepository } from "./repositories/review-access-repository";
 import { createStravaAccountRepository } from "./repositories/strava-account-repository";
 import { createUserCityRepository } from "./repositories/user-city-repository";
@@ -53,6 +55,11 @@ function buildServices(database: Database) {
     cipher: createTokenCipher(env.TOKEN_ENCRYPTION_KEY),
     now,
   });
+  const pushDevices = createPushDeviceRepository(database);
+  const apns =
+    env.APNS_KEY_ID && env.APNS_TEAM_ID && env.APNS_PRIVATE_KEY
+      ? createApnsSender({ keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID, privateKey: env.APNS_PRIVATE_KEY })
+      : null;
   const stravaWebhook = createStravaWebhookService({ users, accounts, activities, strava, tokens, coverage });
 
   return {
@@ -78,7 +85,8 @@ function buildServices(database: Database) {
     }),
     cityImportQueue: createCityImportQueueService({ areas, importQueue, overpass, coverage }),
     queueApproachStreets: (start: LngLat) => queueApproachStreets({ catalog, importQueue }, start),
-    analysisNotify: createAnalysisNotifyService({ users }),
+    pushDevices,
+    analysisNotify: createAnalysisNotifyService({ users, devices: pushDevices, apns }),
     accountLinking: createAccountLinkingService({ users, accounts, tokens }),
     accountDeletion: createAccountDeletionService({ users, accounts, strava, tokens, reportError: console.error }),
     runSync: createRunSyncService({
