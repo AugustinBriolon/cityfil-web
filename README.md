@@ -75,7 +75,9 @@ scripts/seed-review-account.ts --confirm`: runs planned on real streets in two c
   When that work finishes, Expo sends a push if a token was registered (`PATCH /api/mobile/me` `expoPushToken`).
   A per-minute cron restarts any of that work left with nothing driving it
   ([ADR 0028](docs/adr/0028-queue-draining-import-hops-and-a-cron-watchdog.md)).
-  See [ADR 0011](docs/adr/0011-first-login-sync-returns-a-page-then-notifies.md).
+  See [ADR 0011](docs/adr/0011-first-login-sync-returns-a-page-then-notifies.md). Only plausible runs (≤ 7 m/s,
+  ≤ 200 km) open new cities, and a runner has at most three cities queued for street import at once
+  ([ADR 0030](docs/adr/0030-city-import-budget-and-plausible-runs.md)).
 - Sends runs **recorded in the app** to Strava: `POST /api/mobile/runs/upload` turns the GPS segments into a GPX
   file and uploads it (idempotent per `clientRunId`), `GET /api/mobile/runs/upload/:uploadId` polls processing and
   imports the activity as soon as Strava created it, so coverage updates without waiting for the webhook. The mobile
