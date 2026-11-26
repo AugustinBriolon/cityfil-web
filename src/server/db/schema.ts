@@ -309,6 +309,8 @@ export const pushDevices = pgTable(
     /** The app's bundle id: Debug and App Store builds are two apps to APNs. */
     topic: text().notNull(),
     environment: text().$type<"sandbox" | "production">().notNull(),
+    /** BCP 47 language of the device: numbers in a notification are written its way. */
+    locale: text().notNull().default("en"),
     ...timestamps,
   },
   (table) => [index().on(table.userId)],

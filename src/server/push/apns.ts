@@ -8,7 +8,13 @@ import type { PushDevice } from "@/server/repositories/push-device-repository";
  * What the runner reads, and where a tap takes them. Keys resolve on the device against the app's own strings,
  * in its language; `link` is a `cityfil://` deep link to the screen the notification talks about.
  */
-export type ApnsAlert = { titleKey: string; bodyKey: string; bodyArgs?: string[]; link: string };
+export type ApnsAlert = {
+  titleKey: string;
+  titleArgs?: string[];
+  bodyKey: string;
+  bodyArgs?: string[];
+  link: string;
+};
 
 export type ApnsResult = "sent" | "gone" | "failed";
 
@@ -34,6 +40,7 @@ export function apnsPayload(alert: ApnsAlert): string {
     aps: {
       alert: {
         "title-loc-key": alert.titleKey,
+        ...(alert.titleArgs ? { "title-loc-args": alert.titleArgs } : {}),
         "loc-key": alert.bodyKey,
         ...(alert.bodyArgs ? { "loc-args": alert.bodyArgs } : {}),
       },

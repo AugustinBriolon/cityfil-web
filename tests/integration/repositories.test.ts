@@ -40,7 +40,12 @@ describe("Postgres repositories", () => {
   });
 
   describe("push devices", () => {
-    const device = { token: "c".repeat(64), topic: "run.cityfil.app", environment: "production" as const };
+    const device = {
+      token: "c".repeat(64),
+      topic: "run.cityfil.app",
+      environment: "production" as const,
+      locale: "fr-FR",
+    };
 
     it("moves a device to the runner who signs in on it last, and drops it with the account", async () => {
       const ada = await linkAthlete(51, "Ada");

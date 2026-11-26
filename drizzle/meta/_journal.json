@@ -92,6 +92,13 @@
       "when": 1795330000000,
       "tag": "0012_push_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795340000000,
+      "tag": "0013_push_device_locale",
+      "breakpoints": true
     }
   ]
 }

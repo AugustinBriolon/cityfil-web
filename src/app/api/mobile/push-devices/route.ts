@@ -13,6 +13,12 @@ const registerSchema = z.object({
   token: tokenSchema,
   topic: z.enum(PUSH_TOPICS),
   environment: z.enum(["sandbox", "production"]),
+  // An app older than this field registers without it: English numbers until it updates.
+  locale: z
+    .string()
+    .regex(/^[A-Za-z]{2,3}([_-][A-Za-z0-9]{2,8})*$/)
+    .transform((tag) => tag.replaceAll("_", "-"))
+    .default("en"),
 });
 
 /** The native app's APNs token, sent after the runner allows notifications and on every launch. */

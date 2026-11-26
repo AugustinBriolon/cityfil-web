@@ -52,6 +52,28 @@ describe("createStravaWebhookService", () => {
     await expect(service.handleEvent(activityEvent())).resolves.toBeUndefined();
   });
 
+  it("tells the runner what a new run conquered, comparing coverage before and after matching it", async () => {
+    const announceGain = vi.fn(async () => null);
+    service = createStravaWebhookService({ ...harness, runNotify: { announceGain } });
+    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: "1001" }));
+
+    await service.handleEvent(activityEvent());
+
+    expect(announceGain).toHaveBeenCalledWith(harness.user.id, expect.any(Array), expect.any(Array));
+  });
+
+  it("stays quiet when the run could not be matched", async () => {
+    const announceGain = vi.fn(async () => null);
+    service = createStravaWebhookService({ ...harness, runNotify: { announceGain } });
+    harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: "1001" }));
+    vi.spyOn(harness.coverage, "matchPendingActivities").mockRejectedValueOnce(new Error("postgis down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await service.handleEvent(activityEvent());
+
+    expect(announceGain).not.toHaveBeenCalled();
+  });
+
   it("removes a run that Strava no longer returns", async () => {
     harness.strava.getActivity.mockResolvedValueOnce(harness.buildOwnedActivity({ id: "1001" }));
     await service.handleEvent(activityEvent());

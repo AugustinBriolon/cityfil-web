@@ -27,6 +27,7 @@ import { createAccountLinkingService } from "./services/account-linking-service"
 import { createCityDetectionService } from "./services/city-detection-service";
 import { createCityImportQueueService } from "./services/city-import-queue-service";
 import { createConquestService } from "./services/conquest-service";
+import { createRunNotifyService } from "./services/run-notify-service";
 import { createRunSyncService } from "./services/run-sync-service";
 import { createRunUploadService } from "./services/run-upload-service";
 import { createStravaTokenService } from "./services/strava-token-service";
@@ -60,7 +61,15 @@ function buildServices(database: Database) {
     env.APNS_KEY_ID && env.APNS_TEAM_ID && env.APNS_PRIVATE_KEY
       ? createApnsSender({ keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID, privateKey: env.APNS_PRIVATE_KEY })
       : null;
-  const stravaWebhook = createStravaWebhookService({ users, accounts, activities, strava, tokens, coverage });
+  const stravaWebhook = createStravaWebhookService({
+    users,
+    accounts,
+    activities,
+    strava,
+    tokens,
+    coverage,
+    runNotify: createRunNotifyService({ devices: pushDevices, apns }),
+  });
 
   return {
     users,

@@ -11,7 +11,7 @@ const credentials = {
   teamId: "TEAM123456",
   privateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
 };
-const device = { token: "f".repeat(64), topic: "run.cityfil.app", environment: "sandbox" as const };
+const device = { token: "f".repeat(64), topic: "run.cityfil.app", environment: "sandbox" as const, locale: "fr-FR" };
 const alert = { titleKey: "push.analysisComplete.title", bodyKey: "push.analysisComplete.body", link: "cityfil://map" };
 
 describe("apnsPayload", () => {

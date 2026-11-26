@@ -6,6 +6,7 @@ import { StravaApiError, type StravaClient } from "@/server/strava/strava-client
 import { isMappableRun, toActivityRecord } from "@/server/strava/run-activity";
 import type { StravaId, StravaWebhookEvent } from "@/server/strava/strava-types";
 
+import type { RunNotifyService } from "./run-notify-service";
 import type { StravaTokenService } from "./strava-token-service";
 
 export type StravaWebhookService = {
@@ -20,7 +21,9 @@ type Dependencies = {
   activities: ActivityRepository;
   strava: StravaClient;
   tokens: StravaTokenService;
-  coverage: Pick<CoverageRepository, "matchPendingActivities">;
+  coverage: Pick<CoverageRepository, "matchPendingActivities" | "listCityCoverage">;
+  /** Absent: runs are imported without telling the runner what they conquered. */
+  runNotify?: Pick<RunNotifyService, "announceGain">;
 };
 
 /**
@@ -34,6 +37,7 @@ export function createStravaWebhookService({
   strava,
   tokens,
   coverage,
+  runNotify,
 }: Dependencies): StravaWebhookService {
   async function handleDeauthorization(athleteId: StravaId) {
     const account = await accounts.findByAthleteId(athleteId);
@@ -53,11 +57,24 @@ export function createStravaWebhookService({
       // Public activities of other athletes are readable too: never import them.
       if (activity.athlete.id !== athleteId) return;
       if (isMappableRun(activity)) {
+        // What the runner owned before this run: the difference after matching is what it conquered. A webhook
+        // Strava delivers twice finds nothing new the second time, so it never notifies twice.
+        const before = runNotify ? await coverage.listCityCoverage(account.userId) : [];
         await activities.upsertMany([toActivityRecord(activity, account.userId)]);
         // Best effort: street coverage is a supplementary feature, a failure here must not fail the webhook.
-        await coverage.matchPendingActivities({ userId: account.userId }).catch((error: unknown) => {
-          console.error(error);
-        });
+        const matched = await coverage
+          .matchPendingActivities({ userId: account.userId })
+          .then(() => true)
+          .catch((error: unknown) => {
+            console.error(error);
+            return false;
+          });
+        if (runNotify && matched) {
+          await coverage
+            .listCityCoverage(account.userId)
+            .then((after) => runNotify.announceGain(account.userId, before, after))
+            .catch((error: unknown) => console.error("Run notification failed", error));
+        }
       } else {
         await activities.deleteForUser(account.userId, activityId);
       }

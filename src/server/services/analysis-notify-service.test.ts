@@ -7,8 +7,18 @@ import type { PushDevice } from "@/server/repositories/push-device-repository";
 import { ANALYSIS_COMPLETE_ALERT, createAnalysisNotifyService } from "./analysis-notify-service";
 
 const now = new Date("2026-10-06T12:00:00Z");
-const phone: PushDevice = { token: "a".repeat(64), topic: "run.cityfil.app", environment: "production" };
-const oldPad: PushDevice = { token: "b".repeat(64), topic: "run.cityfil.app", environment: "production" };
+const phone: PushDevice = {
+  token: "a".repeat(64),
+  topic: "run.cityfil.app",
+  environment: "production",
+  locale: "fr-FR",
+};
+const oldPad: PushDevice = {
+  token: "b".repeat(64),
+  topic: "run.cityfil.app",
+  environment: "production",
+  locale: "fr-FR",
+};
 
 function user(overrides: Partial<User> = {}): User {
   return {
